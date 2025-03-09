@@ -20,7 +20,7 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: cd go-claude && go test ./... -v
+        run: go test ./... -v
 
       - name: Verify GoReleaser config
         uses: goreleaser/goreleaser-action@v5
@@ -28,4 +28,3 @@ jobs:
           distribution: goreleaser
           version: latest
           args: check
-          workdir: go-claude

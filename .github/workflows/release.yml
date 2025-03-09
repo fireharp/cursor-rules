@@ -26,7 +26,7 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: cd go-claude && go test ./...
+        run: go test ./...
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
@@ -34,7 +34,6 @@ jobs:
           distribution: goreleaser
           version: latest
           args: release --clean
-          workdir: go-claude
         env:
           # This token needs to have access to the homebrew-tap repository
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
