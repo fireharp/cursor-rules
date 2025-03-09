@@ -22,21 +22,54 @@ builds:
       - linux
       - windows
       - darwin
+    main: ./cmd/cursor-rules/main.go
+    id: "cursor-rules"
+    binary: cursor-rules
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
-    # this name template makes the OS and Arch compatible with the results of `uname`.
-    name_template: >-
+  - name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
-    # use zip for windows archives
-    format_overrides:
-      - goos: windows
-        format: zip
+    files:
+      - LICENSE*
+      - README*
+      - CHANGELOG*
+
+brews:
+  - name: cursor-rules
+    homepage: "https://github.com/fireharp/cursor-rules"
+    description: "CLI tool to help initialize and manage Cursor Editor rules for your projects"
+    license: "MIT"
+
+    # Repository to push the generated files to
+    repository:
+      owner: fireharp
+      name: homebrew-tap
+
+    # Git author used to commit to the repository
+    commit_author:
+      name: goreleaserbot
+      email: goreleaser@fireharp.dev
+
+    # Folder inside the repository
+    directory: Formula
+
+    # A more detailed description of the tool
+    caveats: "Run cursor-rules in your project directory to set up Cursor Editor rules"
+
+    # Test block to verify the installation
+    test: |
+      system "#{bin}/cursor-rules --version"
+
+    # Install instructions
+    install: |
+      bin.install "cursor-rules"
 
 changelog:
   sort: asc

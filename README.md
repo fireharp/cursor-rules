@@ -13,6 +13,17 @@ This tool makes it easy to set up and manage `.cursor/rules` configuration for C
 
 ## Installation
 
+### Using Homebrew
+
+```bash
+# Install directly
+brew install fireharp/tap/cursor-rules
+
+# Or, tap first and then install
+brew tap fireharp/tap
+brew install cursor-rules
+```
+
 ### From source
 
 ```
@@ -73,6 +84,7 @@ The tool will:
 ### Language templates
 
 Templates tailored for specific programming languages, including:
+
 - Python
 - Go
 - (more coming soon)
@@ -80,6 +92,7 @@ Templates tailored for specific programming languages, including:
 ### Framework templates
 
 Templates tailored for specific frameworks, including:
+
 - React
 - (more coming soon)
 
