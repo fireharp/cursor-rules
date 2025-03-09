@@ -32,10 +32,8 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v1" # This specifies to use latest v1.x.x of GoReleaser
+          version: "~> v2" # This specifies to use latest v2.x.x of GoReleaser
           args: release --clean
         env:
-          # Standard GitHub token for repo operations
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT with access to the homebrew-tap repository
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # Use a PAT with access to the homebrew-tap repository
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

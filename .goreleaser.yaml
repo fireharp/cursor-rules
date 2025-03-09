@@ -6,7 +6,7 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
 
-version: 1
+version: 2
 
 before:
   hooks:
@@ -48,7 +48,7 @@ brews:
     license: "MIT"
 
     # Repository to push the generated files to
-    tap:
+    repository:
       owner: fireharp
       name: homebrew-tap
 
@@ -58,7 +58,7 @@ brews:
       email: goreleaser@fireharp.dev
 
     # Folder inside the repository
-    folder: Formula
+    directory: Formula
 
     # A more detailed description of the tool
     caveats: "Run cursor-rules in your project directory to set up Cursor Editor rules"

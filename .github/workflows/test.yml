@@ -26,5 +26,5 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v1"
+          version: "~> v2"
           args: check
