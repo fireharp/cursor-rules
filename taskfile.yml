@@ -1,0 +1,136 @@
+version: '3'
+
+vars:
+  BINARY: cursor-rules
+  BUILD_DIR: ./bin
+  MAIN_PKG: ./cmd/cursor-rules
+  VERSION: 0.1.0
+  GOOS: '{{OS}}'
+  GOARCH: '{{ARCH}}'
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the cursor-rules binary
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - echo "Building {{.BINARY}} for {{.GOOS}}/{{.GOARCH}}..."
+      - GOOS={{.GOOS}} GOARCH={{.GOARCH}} go build -v -ldflags="-X 'main.Version={{.VERSION}}'" -o {{.BUILD_DIR}}/{{.BINARY}} {{.MAIN_PKG}}
+    sources:
+      - cmd/**/*.go
+      - pkg/**/*.go
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BUILD_DIR}}/{{.BINARY}}"
+
+  run:
+    desc: Run the cursor-rules application
+    deps: [build]
+    cmds:
+      - ./{{.BUILD_DIR}}/{{.BINARY}}
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+
+  test:coverage:
+    desc: Run tests with coverage report
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/coverage
+      - go test -coverprofile={{.BUILD_DIR}}/coverage/coverage.out ./...
+      - go tool cover -html={{.BUILD_DIR}}/coverage/coverage.out -o {{.BUILD_DIR}}/coverage/coverage.html
+      - echo "Coverage report generated at {{.BUILD_DIR}}/coverage/coverage.html"
+
+  lint:
+    desc: Lint the code
+    cmds:
+      - go vet ./...
+      - |
+        if command -v golangci-lint > /dev/null; then
+          golangci-lint run
+        else
+          echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+        fi
+
+  fmt:
+    desc: Format the code
+    cmds:
+      - go fmt ./...
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+      - go clean
+
+  install:
+    desc: Install the binary to GOPATH/bin
+    deps: [build]
+    cmds:
+      - cp {{.BUILD_DIR}}/{{.BINARY}} $(go env GOPATH)/bin/
+      - echo "Installed {{.BINARY}} to $(go env GOPATH)/bin/"
+    
+  templates:list:
+    desc: List all available templates
+    cmds:
+      - go run {{.MAIN_PKG}} --list-templates
+
+  dev:watch:
+    desc: Watch for file changes and rebuild
+    cmds:
+      - |
+        echo "Watching for changes... Press Ctrl+C to stop"
+        find . -name "*.go" | entr -r task build
+
+  all:
+    desc: Run all tasks (fmt, lint, test, build)
+    cmds:
+      - task: fmt
+      - task: lint
+      - task: test
+      - task: build
+      
+  dist:
+    desc: Create distribution packages for multiple platforms
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/dist
+      - task: dist:linux
+      - task: dist:macos
+      - task: dist:windows
+      - echo "Distribution packages created in {{.BUILD_DIR}}/dist"
+    
+  dist:linux:
+    desc: Create Linux distribution package
+    cmds:
+      - GOOS=linux GOARCH=amd64 task build
+      - mkdir -p {{.BUILD_DIR}}/dist/linux
+      - cp {{.BUILD_DIR}}/{{.BINARY}} {{.BUILD_DIR}}/dist/linux/
+      - cp -r templates {{.BUILD_DIR}}/dist/linux/
+      - cp README.md {{.BUILD_DIR}}/dist/linux/
+      - echo "Linux package created in {{.BUILD_DIR}}/dist/linux"
+    
+  dist:macos:
+    desc: Create macOS distribution package
+    cmds:
+      - GOOS=darwin GOARCH=amd64 task build
+      - mkdir -p {{.BUILD_DIR}}/dist/macos
+      - cp {{.BUILD_DIR}}/{{.BINARY}} {{.BUILD_DIR}}/dist/macos/
+      - cp -r templates {{.BUILD_DIR}}/dist/macos/
+      - cp README.md {{.BUILD_DIR}}/dist/macos/
+      - echo "macOS package created in {{.BUILD_DIR}}/dist/macos"
+    
+  dist:windows:
+    desc: Create Windows distribution package
+    cmds:
+      - GOOS=windows GOARCH=amd64 task build
+      - mkdir -p {{.BUILD_DIR}}/dist/windows
+      - cp {{.BUILD_DIR}}/{{.BINARY}}.exe {{.BUILD_DIR}}/dist/windows/
+      - cp -r templates {{.BUILD_DIR}}/dist/windows/
+      - cp README.md {{.BUILD_DIR}}/dist/windows/
+      - echo "Windows package created in {{.BUILD_DIR}}/dist/windows"

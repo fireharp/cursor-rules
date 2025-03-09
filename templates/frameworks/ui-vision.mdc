@@ -1,0 +1,23 @@
+---
+description: Rules for UI.Vision RPA macros
+globs: macros/*.json
+alwaysApply: false
+---
+when we work with UI.Vision JSON macros we should use docs from docs/ folder
+
+# UI.Vision Macro Rules
+
+## Naming Conventions
+- Use descriptive names for macros
+- Prefix test macros with "test_"
+- Use snake_case for macro names
+
+## Structure
+- Group related commands using comments
+- Keep macros focused on a single task
+- Use variables for reusable values
+
+## Error Handling
+- Include error checking where appropriate
+- Use "!ERRORIGNORE" only when necessary
+- Add timeout handling for UI interactions

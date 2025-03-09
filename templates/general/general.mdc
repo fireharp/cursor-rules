@@ -1,0 +1,23 @@
+---
+description: General project rules
+globs: **/*
+alwaysApply: true
+---
+these are general coding guidelines that apply to all files in the project:
+
+# General Project Rules
+
+## Code Style
+- Use consistent indentation (2 or 4 spaces)
+- Keep line length under 100 characters
+- Use meaningful variable and function names
+
+## Documentation
+- Document public APIs
+- Keep README up-to-date
+- Include examples where appropriate
+
+## Version Control
+- Write clear commit messages
+- Use feature branches
+- Review code before merging

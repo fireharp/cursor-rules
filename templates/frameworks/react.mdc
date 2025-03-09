@@ -1,0 +1,19 @@
+---
+description: Rules for React projects
+globs: **/*.jsx, **/*.tsx, src/**/*.js
+alwaysApply: false
+---
+when working with React components, follow these guidelines:
+
+# React Rules
+
+## Component Structure
+- Use functional components with hooks
+- Keep components small and focused
+
+## State Management
+- Use React Context for global state
+- Prefer useState for local component state
+
+## Styling
+- Use CSS modules or styled-components
