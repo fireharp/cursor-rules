@@ -104,3 +104,109 @@ MEMO:
 - Homebrew users can install using: `brew install fireharp/tap/cursor-rules`
 - GoReleaser will automatically update the Homebrew formula with each release
 - Make sure the GITHUB_TOKEN has correct permissions for the tap repository
+
+## TS: 2025-03-09 21:30:05 CET
+
+## PROBLEM: Need to create the first official release of cursor-rules
+
+WHAT WAS DONE:
+
+- Set up homebrew-tap repository with proper structure
+- Created placeholder formula in homebrew-tap repository
+- Tagged and pushed v0.1.0 to trigger the release workflow
+- Verified release workflow execution
+
+---
+
+MEMO:
+
+- First official release tagged as v0.1.0
+- Release workflow will build binaries for all supported platforms
+- The Homebrew formula will be automatically updated
+- Once the workflow completes, users can install with: `brew install fireharp/tap/cursor-rules`
+- Need to verify the release artifacts and Homebrew formula after workflow completion
+
+## TS: 2025-03-09 21:36:27 CET
+
+## PROBLEM: GitHub Actions workflows failing due to directory structure mismatch
+
+WHAT WAS DONE:
+
+- Fixed GitHub Actions workflow files by removing `cd go-claude` commands
+- Removed workdir parameter from GoReleaser actions
+- Created and pushed a new tag (v0.1.1) to trigger the fixed workflow
+- Pushed workflow fixes to the main branch
+
+---
+
+MEMO:
+
+- Local repository structure had files in go-claude directory
+- GitHub repository structure has files in the root
+- GitHub Actions needs to run commands from the repository root
+- New release v0.1.1 should build successfully with the fixed workflows
+
+## TS: 2025-03-09 21:45:12 CET
+
+## PROBLEM: GitHub Actions workflow failing due to GoReleaser version incompatibility
+
+WHAT WAS DONE:
+
+- Changed GoReleaser configuration to use version 1 instead of version 2
+- Updated GitHub Actions workflow to use goreleaser-action@v6
+- Changed GoReleaser version specification to use "~> v1"
+- Updated Go version in workflows to match go.mod (1.23.4)
+- Created a new tag (v0.1.2) to trigger the updated workflow
+
+---
+
+MEMO:
+
+- GoReleaser in GitHub Actions was using a version that doesn't support config version 2
+- Explicit Go version ensures consistent builds matching development environment
+- Using v1.x.x of GoReleaser which is compatible with our configuration
+- Upgraded GitHub Actions components to latest versions
+- Maintained the same directory structure fixes from previous attempts
+
+## TS: 2025-03-09 21:52:48 CET
+
+## PROBLEM: GoReleaser unable to update Homebrew tap due to permission issues
+
+WHAT WAS DONE:
+
+- Created a Personal Access Token (PAT) with repository access permissions
+- Added the token as a repository secret named HOMEBREW_TAP_TOKEN
+- Updated the GitHub Actions workflow to use the PAT instead of the default GITHUB_TOKEN
+- Recreated and pushed the v0.1.2 tag to trigger the updated workflow
+
+---
+
+MEMO:
+
+- Default GITHUB_TOKEN only has permissions for the repository where the workflow runs
+- A Personal Access Token (PAT) is required for cross-repository operations
+- The PAT needs repo permissions to push to the homebrew-tap repository
+- Used same version number (v0.1.2) but with fixed permissions
+- The Homebrew formula should now be correctly updated in the tap repository
+
+## TS: 2025-03-09 22:05:32 CET
+
+## PROBLEM: GoReleaser still unable to update Homebrew tap despite using PAT
+
+WHAT WAS DONE:
+
+- Modified `.goreleaser.yaml` to explicitly specify `token_env: HOMEBREW_TAP_TOKEN` in the brews section
+- Updated the GitHub Actions workflow to use both tokens separately:
+  - `GITHUB_TOKEN` for main repository operations
+  - `HOMEBREW_TAP_TOKEN` for Homebrew tap repository updates
+- Prepared for another release attempt with these changes
+
+---
+
+MEMO:
+
+- GoReleaser needs to use a different token for cross-repository operations
+- The token must be explicitly specified in both the workflow environment variables and the GoReleaser config
+- Without the explicit token_env in GoReleaser config, it defaults to using GITHUB_TOKEN
+- Using separate tokens for different operations ensures proper permissions
+- This should allow GoReleaser to update the Homebrew formula in the tap repository

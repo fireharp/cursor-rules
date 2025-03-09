@@ -35,5 +35,7 @@ jobs:
           version: "~> v1" # This specifies to use latest v1.x.x of GoReleaser
           args: release --clean
         env:
-          # This token needs to have access to the homebrew-tap repository
+          # Standard GitHub token for repo operations
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with access to the homebrew-tap repository
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
