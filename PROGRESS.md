@@ -274,3 +274,26 @@ MEMO:
 - RELEASE.md covers version management, pre-release checks, local testing, and release steps
 - Standardized process should prevent mistakes in future releases
 - Document includes Homebrew deployment verification steps
+
+## TS: 2025-03-18 22:10:01 CET
+
+## PROBLEM: Need to implement a minimal viable product (MVP) for CursorRules with initialization and setup features
+
+WHAT WAS DONE:
+
+- Created two new template files: init.mdc and setup.mdc
+- Added '--init' flag to initialize with just the init template
+- Added '--setup' flag to detect project type and set up appropriate rules
+- Implemented project type detection for npm/React and Python projects
+- Created example project structures for testing in examples/ directory
+- Made initialization process more streamlined with specific commands
+
+---
+
+MEMO:
+
+- MVP focuses on two main commands: init and setup
+- CursorRules.init creates the .cursor/rules directory and adds only the init template
+- CursorRules.setup detects project type and adds appropriate templates
+- Project detection checks for package.json, setup.py, requirements.txt, etc.
+- Testing can be done with example projects in go-claude/examples/

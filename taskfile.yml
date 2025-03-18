@@ -134,3 +134,53 @@ tasks:
       - cp -r templates {{.BUILD_DIR}}/dist/windows/
       - cp README.md {{.BUILD_DIR}}/dist/windows/
       - echo "Windows package created in {{.BUILD_DIR}}/dist/windows"
+
+  mvp:test:
+    desc: Test the MVP init and setup functionality
+    deps: [build]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/test
+      - echo "Creating test directories..."
+      - mkdir -p {{.BUILD_DIR}}/test/npm-project {{.BUILD_DIR}}/test/python-project
+      - echo "Creating npm/React project..."
+      - echo '{ "name": "example-npm", "version": "1.0.0", "dependencies": { "react": "^18.2.0" } }' > {{.BUILD_DIR}}/test/npm-project/package.json
+      - echo "Creating Python project..."
+      - echo 'from setuptools import setup\n\nsetup(name="example-python", version="1.0.0", packages=["example_python"])' > {{.BUILD_DIR}}/test/python-project/setup.py
+      - echo "Testing init on npm project..."
+      - cd {{.BUILD_DIR}}/test/npm-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --init
+      - echo "Testing setup on npm project..."
+      - cd {{.BUILD_DIR}}/test/npm-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --setup
+      - echo "Testing init on Python project..."
+      - cd {{.BUILD_DIR}}/test/python-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --init
+      - echo "Testing setup on Python project..."
+      - cd {{.BUILD_DIR}}/test/python-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --setup
+      - echo "MVP testing complete!"
+
+  mvp:validate:
+    desc: Validate the results of the MVP test
+    cmds:
+      - echo "Validating npm project rules..."
+      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/init.mdc || (echo "Error init.mdc not found in npm project" && exit 1)
+      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/setup.mdc || (echo "Error setup.mdc not found in npm project" && exit 1)
+      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/react.mdc || (echo "Error react.mdc not found in npm project" && exit 1)
+      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/general.mdc || (echo "Error general.mdc not found in npm project" && exit 1)
+      - echo "Validating Python project rules..."
+      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/init.mdc || (echo "Error init.mdc not found in Python project" && exit 1)
+      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/setup.mdc || (echo "Error setup.mdc not found in Python project" && exit 1)
+      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/python.mdc || (echo "Error python.mdc not found in Python project" && exit 1)
+      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/general.mdc || (echo "Error general.mdc not found in Python project" && exit 1)
+      - echo "MVP validation successful!"
+
+  mvp:cleanup:
+    desc: Clean up MVP test artifacts
+    cmds:
+      - echo "Cleaning up MVP test artifacts..."
+      - rm -rf {{.BUILD_DIR}}/test
+      - echo "MVP cleanup complete!"
+
+  mvp:all:
+    desc: Run all MVP tasks (test, validate, cleanup)
+    cmds:
+      - task: mvp:test
+      - task: mvp:validate
+      - task: mvp:cleanup
