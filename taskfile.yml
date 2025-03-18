@@ -1,12 +1,12 @@
-version: '3'
+version: "3"
 
 vars:
   BINARY: cursor-rules
   BUILD_DIR: ./bin
   MAIN_PKG: ./cmd/cursor-rules
-  VERSION: 0.1.0
-  GOOS: '{{OS}}'
-  GOARCH: '{{ARCH}}'
+  VERSION: 0.1.3
+  GOOS: "{{OS}}"
+  GOARCH: "{{ARCH}}"
 
 tasks:
   default:
@@ -75,7 +75,7 @@ tasks:
     cmds:
       - cp {{.BUILD_DIR}}/{{.BINARY}} $(go env GOPATH)/bin/
       - echo "Installed {{.BINARY}} to $(go env GOPATH)/bin/"
-    
+
   templates:list:
     desc: List all available templates
     cmds:
@@ -95,7 +95,7 @@ tasks:
       - task: lint
       - task: test
       - task: build
-      
+
   dist:
     desc: Create distribution packages for multiple platforms
     cmds:
@@ -104,7 +104,7 @@ tasks:
       - task: dist:macos
       - task: dist:windows
       - echo "Distribution packages created in {{.BUILD_DIR}}/dist"
-    
+
   dist:linux:
     desc: Create Linux distribution package
     cmds:
@@ -114,7 +114,7 @@ tasks:
       - cp -r templates {{.BUILD_DIR}}/dist/linux/
       - cp README.md {{.BUILD_DIR}}/dist/linux/
       - echo "Linux package created in {{.BUILD_DIR}}/dist/linux"
-    
+
   dist:macos:
     desc: Create macOS distribution package
     cmds:
@@ -124,7 +124,7 @@ tasks:
       - cp -r templates {{.BUILD_DIR}}/dist/macos/
       - cp README.md {{.BUILD_DIR}}/dist/macos/
       - echo "macOS package created in {{.BUILD_DIR}}/dist/macos"
-    
+
   dist:windows:
     desc: Create Windows distribution package
     cmds:
