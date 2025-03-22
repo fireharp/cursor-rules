@@ -5,3 +5,4 @@ repomix-*.*
 examples/**/.cursor/rules/
 examples/**/.cursor/rules/**
 PROGRESS.md
+LOCAL.md

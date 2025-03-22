@@ -189,19 +189,19 @@ func parseTemplateFile(filePath, category string) (Template, error) {
 // CreateTemplate writes a template to the specified directory
 func CreateTemplate(targetDir string, tmpl Template) error {
 	filePath := filepath.Join(targetDir, tmpl.Filename)
-	
+
 	// Create or truncate the file
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
 	defer file.Close()
-	
+
 	// Start with frontmatter
 	var builder strings.Builder
 	builder.WriteString("---\n")
 	builder.WriteString(fmt.Sprintf("description: %s\n", tmpl.Description))
-	
+
 	// Write globs
 	if len(tmpl.Globs) == 1 {
 		builder.WriteString(fmt.Sprintf("globs: %s\n", tmpl.Globs[0]))
@@ -215,20 +215,20 @@ func CreateTemplate(targetDir string, tmpl Template) error {
 		}
 		builder.WriteString("\n")
 	}
-	
+
 	// Write alwaysApply
 	builder.WriteString(fmt.Sprintf("alwaysApply: %t\n", tmpl.AlwaysApply))
 	builder.WriteString("---\n\n")
-	
+
 	// Write content
 	builder.WriteString(tmpl.Content)
-	
+
 	// Write template content
 	_, err = file.WriteString(builder.String())
 	if err != nil {
 		return fmt.Errorf("failed to write template: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -237,10 +237,10 @@ func ListAvailableTemplates() {
 	for _, category := range Categories {
 		if len(category.Templates) > 0 {
 			fmt.Printf("Available %s Templates:\n", category.Name)
-			
+
 			for key, tmpl := range category.Templates {
 				fmt.Printf("  - %s: %s", key, tmpl.Description)
-				
+
 				if len(tmpl.Globs) > 0 {
 					fmt.Printf(" (globs: %s", strings.Join(tmpl.Globs, ", "))
 					if tmpl.AlwaysApply {
@@ -250,7 +250,7 @@ func ListAvailableTemplates() {
 				} else if tmpl.AlwaysApply {
 					fmt.Printf(" (always apply)")
 				}
-				
+
 				fmt.Println()
 			}
 			fmt.Println()

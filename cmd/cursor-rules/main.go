@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fireharp/cursor-rules/pkg/manager"
 	"github.com/fireharp/cursor-rules/pkg/templates"
 )
 
@@ -25,6 +25,20 @@ func main() {
 	versionFlag := flag.Bool("version", false, "Print version information")
 	initFlag := flag.Bool("init", false, "Initialize Cursor Rules with just the init template")
 	setupFlag := flag.Bool("setup", false, "Run project type detection and setup appropriate rules")
+
+	// Define flag sets for new subcommands
+	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
+
+	addRefCmd := flag.NewFlagSet("add-ref", flag.ExitOnError)
+
+	removeCmd := flag.NewFlagSet("remove", flag.ExitOnError)
+	upgradeCmd := flag.NewFlagSet("upgrade", flag.ExitOnError)
+
+	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
+	listDetailedFlag := listCmd.Bool("detailed", false, "Show detailed information about installed rules")
+
+	lockLocationCmd := flag.NewFlagSet("set-lock-location", flag.ExitOnError)
+	useRootFlag := lockLocationCmd.Bool("root", false, "Use project root for lockfile location (if false, uses .cursor/rules)")
 
 	// Parse flags
 	flag.Parse()
@@ -77,123 +91,254 @@ func main() {
 
 	fmt.Printf("Initialized .cursor/rules directory in %s\n", cursorDir)
 
-	// Handle init command or flag
+	// Handle subcommands
+	if len(args) > 0 {
+		switch args[0] {
+		case "add":
+			// Usage: cursor-rules add <ruleKey or reference>
+			_ = addCmd.Parse(args[1:])
+			if addCmd.NArg() < 1 {
+				fmt.Println("Usage: cursor-rules add <reference>")
+				fmt.Println("  where <reference> can be:")
+				fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
+				fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
+				fmt.Println("  - GitHub directory: https://github.com/user/repo/tree/main/rules/")
+				return
+			}
+			reference := addCmd.Arg(0)
+
+			// Always use AddRuleByReference for all add operations
+			if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
+				fmt.Printf("Error adding rule from reference: %v\n", err)
+			} else {
+				fmt.Printf("Rule from %q added successfully\n", reference)
+			}
+			return
+
+		case "add-ref":
+			// Usage: cursor-rules add-ref <reference>
+			// Reference can be:
+			// - Local file path (absolute or relative)
+			// - GitHub URL (blob or tree)
+			_ = addRefCmd.Parse(args[1:])
+			if addRefCmd.NArg() < 1 {
+				fmt.Println("Usage: cursor-rules add-ref <reference>")
+				fmt.Println("  where <reference> can be:")
+				fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
+				fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
+				fmt.Println("  - GitHub directory: https://github.com/user/repo/tree/main/rules/")
+				return
+			}
+			reference := addRefCmd.Arg(0)
+			if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
+				fmt.Printf("Error adding rule from reference: %v\n", err)
+			} else {
+				fmt.Printf("Rule from %q added successfully\n", reference)
+			}
+			return
+
+		case "remove":
+			// Usage: cursor-rules remove <ruleKey>
+			_ = removeCmd.Parse(args[1:])
+			if removeCmd.NArg() < 1 {
+				fmt.Println("Usage: cursor-rules remove <ruleKey>")
+				return
+			}
+			ruleKey := removeCmd.Arg(0)
+			if err := manager.RemoveRule(cursorDir, ruleKey); err != nil {
+				fmt.Printf("Error removing rule: %v\n", err)
+			} else {
+				fmt.Printf("Rule %q removed successfully.\n", ruleKey)
+			}
+			return
+
+		case "upgrade":
+			// Usage: cursor-rules upgrade <ruleKey>
+			_ = upgradeCmd.Parse(args[1:])
+			if upgradeCmd.NArg() < 1 {
+				fmt.Println("Usage: cursor-rules upgrade <ruleKey>")
+				return
+			}
+			ruleKey := upgradeCmd.Arg(0)
+			if err := manager.UpgradeRule(cursorDir, ruleKey); err != nil {
+				fmt.Printf("Error upgrading rule: %v\n", err)
+			} else {
+				fmt.Printf("Rule %q upgraded successfully.\n", ruleKey)
+			}
+			return
+
+		case "list":
+			// Usage: cursor-rules list [--detailed]
+			_ = listCmd.Parse(args[1:])
+
+			// First sync any local rules that aren't in the lockfile
+			err := manager.SyncLocalRules(cursorDir)
+			if err != nil {
+				fmt.Printf("Error syncing local rules: %v\n", err)
+				// Continue anyway to show what's in the lockfile
+			}
+
+			if *listDetailedFlag {
+				// Detailed list
+				rules, err := manager.GetInstalledRules(cursorDir)
+				if err != nil {
+					fmt.Printf("Error listing rules: %v\n", err)
+					return
+				}
+				if len(rules) == 0 {
+					fmt.Println("No rules installed.")
+				} else {
+					fmt.Println("Installed rules:")
+					for _, r := range rules {
+						fmt.Printf("  - %s\n", r.Key)
+						fmt.Printf("    Type: %s\n", r.SourceType)
+						fmt.Printf("    Reference: %s\n", r.Reference)
+						if r.GitRef != "" {
+							fmt.Printf("    Git Ref: %s\n", r.GitRef)
+						}
+						if len(r.LocalFiles) > 0 {
+							fmt.Printf("    Files: %s\n", strings.Join(r.LocalFiles, ", "))
+						}
+						fmt.Println()
+					}
+				}
+			} else {
+				// Simple list
+				installed, err := manager.ListInstalledRules(cursorDir)
+				if err != nil {
+					fmt.Printf("Error listing rules: %v\n", err)
+					return
+				}
+				if len(installed) == 0 {
+					fmt.Println("No rules installed.")
+				} else {
+					fmt.Println("Installed rules:")
+					for _, r := range installed {
+						fmt.Printf("  - %s\n", r)
+					}
+				}
+			}
+			return
+
+		case "set-lock-location":
+			// Usage: cursor-rules set-lock-location [--root]
+			_ = lockLocationCmd.Parse(args[1:])
+
+			// Set the lock file location
+			newPath, err := manager.SetLockFileLocation(cursorDir, *useRootFlag)
+			if err != nil {
+				fmt.Printf("Error setting lockfile location: %v\n", err)
+				return
+			}
+
+			location := "project root"
+			if !*useRootFlag {
+				location = ".cursor/rules directory"
+			}
+
+			fmt.Printf("Lock file location set to %s\n", location)
+			fmt.Printf("Lock file path: %s\n", newPath)
+			return
+
+		case "init":
+			// Handle init command
+			runInitCommand(cursorDir)
+			return
+
+		case "setup":
+			// Handle setup command
+			setupProject(cwd, cursorDir)
+			return
+		}
+	}
+
+	// Handle init flag
 	if *initFlag || command == "init" {
 		// Also create CR_SETUP as an alias for CursorRules.setup
 		// Add only the init.mdc template
-		initTemplate, ok := templates.Categories["general"].Templates["init"]
-		if !ok {
-			fmt.Println("Error: Init template not found")
-			os.Exit(1)
-		}
-
-		// Modify the init template to include CR_SETUP as an alias
-		initTemplate.Content = strings.Replace(
-			initTemplate.Content,
-			"Run CursorRules.setup in Cursor",
-			"Run CursorRules.setup or CR_SETUP in Cursor",
-			-1)
-
-		if err := templates.CreateTemplate(cursorDir+"/"+defaultCursorRulesDir, initTemplate); err != nil {
-			fmt.Printf("Error creating init template: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Println("Added init template. Run CursorRules.setup or CR_SETUP in Cursor to continue setup.")
+		runInitCommand(cursorDir)
 		return
 	}
 
-	// Handle setup command or flag
+	// Handle setup flag
 	if *setupFlag || command == "setup" {
 		setupProject(cwd, cursorDir)
 		return
 	}
 
-	// If no specific command, show interactive template selection
-	// Check for existing templates
-	fmt.Println("\nChecking for existing templates...")
-	if err := templates.ListExistingTemplates(cursorDir); err != nil {
-		fmt.Printf("Error listing existing templates: %v\n", err)
+	// If no specific command, show help
+	showHelp()
+}
+
+// Show help information for the cursor-rules command
+func showHelp() {
+	fmt.Println("\nUsage:")
+	fmt.Println("  cursor-rules [command] [flags]")
+	fmt.Println("\nCommands:")
+	fmt.Println("  init                Initialize Cursor Rules with the init template")
+	fmt.Println("  setup               Auto-detect project type, then add rules")
+	fmt.Println("  add <reference>     Add a rule from a reference (local file or GitHub URL)")
+	fmt.Println("  add-ref <reference> Add a rule from a reference (alias for 'add')")
+	fmt.Println("  remove <rule>       Remove an installed rule")
+	fmt.Println("  upgrade <rule>      Reinstall / upgrade a rule")
+	fmt.Println("  list [--detailed]   List installed rules (--detailed for more info)")
+	fmt.Println("  set-lock-location   Set the location of the lockfile (--root for project root)")
+	fmt.Println("  --init              Same as the 'init' command")
+	fmt.Println("  --setup             Same as the 'setup' command")
+	fmt.Println("  --version           Print version information")
+	fmt.Println("\nExamples:")
+	fmt.Println("  cursor-rules init")
+	fmt.Println("  cursor-rules setup")
+	fmt.Println("  cursor-rules add ./custom-rules/my-rule.mdc")
+	fmt.Println("  cursor-rules add https://github.com/user/repo/blob/main/rules/python.mdc")
+	fmt.Println("  cursor-rules add-ref /Users/me/custom-rule.mdc")
+	fmt.Println("  cursor-rules add-ref https://github.com/user/repo/blob/main/rules/python.mdc")
+	fmt.Println("  cursor-rules remove python")
+	fmt.Println("  cursor-rules list --detailed")
+	fmt.Println("  cursor-rules set-lock-location --root")
+}
+
+// runInitCommand initializes cursor rules with just the init template
+func runInitCommand(cursorDir string) {
+	// Get the init template from the general category
+	initTemplate, ok := templates.Categories["general"].Templates["init"]
+	if !ok {
+		fmt.Println("Error: Init template not found")
+		os.Exit(1)
 	}
 
-	// Interactive template selection
-	reader := bufio.NewReader(os.Stdin)
+	// Modify the init template to include CR_SETUP as an alias
+	initTemplate.Content = strings.Replace(
+		initTemplate.Content,
+		"Run CursorRules.setup in Cursor",
+		"Run CursorRules.setup or CR_SETUP in Cursor",
+		-1)
 
-	// Iterate through each category
-	for _, categoryInfo := range templates.Categories {
-		if len(categoryInfo.Templates) == 0 {
-			continue
-		}
+	// Update the template in the global map with the modified content
+	templates.Categories["general"].Templates["init"] = initTemplate
 
-		fmt.Printf("\nAvailable %s templates:\n", categoryInfo.Name)
-		for key, tmpl := range categoryInfo.Templates {
-			fmt.Printf("  - %s: %s", key, tmpl.Description)
-			if len(tmpl.Globs) > 0 {
-				fmt.Printf(" (globs: %s)", strings.Join(tmpl.Globs, ", "))
-			}
-			if tmpl.AlwaysApply {
-				fmt.Printf(" (always apply)")
-			}
-			fmt.Println()
-		}
-
-		// Ask which templates to add
-		fmt.Printf("\nWhich %s templates would you like to add? (comma-separated, or 'all', or press Enter to skip): ", strings.ToLower(categoryInfo.Name))
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		if input != "" {
-			templateList := strings.Split(input, ",")
-
-			for _, templateName := range templateList {
-				templateName = strings.TrimSpace(templateName)
-
-				if templateName == "all" {
-					// Add all templates in this category
-					for _, tmpl := range categoryInfo.Templates {
-						if err := templates.CreateTemplate(cursorDir, tmpl); err != nil {
-							fmt.Printf("Error creating template %s: %v\n", tmpl.Name, err)
-							continue
-						}
-						fmt.Printf("Added %s template\n", tmpl.Name)
-					}
-					break
-				}
-
-				if tmpl, ok := categoryInfo.Templates[templateName]; ok {
-					if err := templates.CreateTemplate(cursorDir, tmpl); err != nil {
-						fmt.Printf("Error creating template %s: %v\n", tmpl.Name, err)
-						continue
-					}
-					fmt.Printf("Added %s template\n", tmpl.Name)
-				} else {
-					fmt.Printf("Unknown template: %s\n", templateName)
-				}
-			}
-		}
+	// Write init template to filesystem and add it by reference
+	initPath := filepath.Join(cursorDir, "init.mdc")
+	err := os.WriteFile(initPath, []byte(initTemplate.Content), 0644)
+	if err != nil {
+		fmt.Printf("Error writing init template: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Custom template
-	fmt.Print("\nWould you like to create a custom template? (y/n): ")
-	customInput, _ := reader.ReadString('\n')
-	customInput = strings.TrimSpace(customInput)
-
-	if strings.ToLower(customInput) == "y" {
-		if err := templates.CreateCustomTemplate(cursorDir); err != nil {
-			fmt.Printf("Error creating custom template: %v\n", err)
-		} else {
-			fmt.Println("Added custom template")
-		}
+	// Add the init template using the reference-based approach
+	if err := manager.AddRuleByReference(cursorDir, initPath); err != nil {
+		fmt.Printf("Error creating init template: %v\n", err)
+		os.Exit(1)
 	}
 
-	fmt.Println("\nCursor rules initialization complete!")
+	fmt.Println("Added init template. Run CursorRules.setup or CR_SETUP in Cursor to continue setup.")
 }
 
 // setupProject detects project type and sets up appropriate rules
 func setupProject(projectDir, cursorDir string) {
 	fmt.Println("Detecting project type...")
 
-	// Add setup template
+	// Get the setup template from the general category
 	setupTemplate, ok := templates.Categories["general"].Templates["setup"]
 	if !ok {
 		fmt.Println("Error: Setup template not found")
@@ -207,7 +352,19 @@ func setupProject(projectDir, cursorDir string) {
 		"CursorRules.setup or CR_SETUP",
 		-1)
 
-	if err := templates.CreateTemplate(cursorDir, setupTemplate); err != nil {
+	// Update the template in the global map with the modified content
+	templates.Categories["general"].Templates["setup"] = setupTemplate
+
+	// Write setup template to filesystem so we can add it by reference
+	setupPath := filepath.Join(cursorDir, "setup.mdc")
+	err := os.WriteFile(setupPath, []byte(setupTemplate.Content), 0644)
+	if err != nil {
+		fmt.Printf("Error writing setup template: %v\n", err)
+		return
+	}
+
+	// Add setup template using reference
+	if err := manager.AddRuleByReference(cursorDir, setupPath); err != nil {
 		fmt.Printf("Error creating setup template: %v\n", err)
 		return
 	}
@@ -223,12 +380,21 @@ func setupProject(projectDir, cursorDir string) {
 			fmt.Println("Detected React dependency.")
 
 			reactTemplate, ok := templates.Categories["frameworks"].Templates["react"]
-			if ok {
-				if err := templates.CreateTemplate(cursorDir, reactTemplate); err != nil {
-					fmt.Printf("Error creating React template: %v\n", err)
-				} else {
-					fmt.Println("Added React template.")
-				}
+			if !ok {
+				fmt.Println("Error: React template not found")
+				return
+			}
+			reactPath := filepath.Join(cursorDir, "react.mdc")
+			err = os.WriteFile(reactPath, []byte(reactTemplate.Content), 0644)
+			if err != nil {
+				fmt.Printf("Error writing react template: %v\n", err)
+				return
+			}
+
+			if err := manager.AddRuleByReference(cursorDir, reactPath); err != nil {
+				fmt.Printf("Error creating React template: %v\n", err)
+			} else {
+				fmt.Println("Added React template.")
 			}
 		}
 	}
@@ -240,23 +406,42 @@ func setupProject(projectDir, cursorDir string) {
 		fmt.Println("Detected Python project.")
 
 		pythonTemplate, ok := templates.Categories["languages"].Templates["python"]
-		if ok {
-			if err := templates.CreateTemplate(cursorDir, pythonTemplate); err != nil {
-				fmt.Printf("Error creating Python template: %v\n", err)
-			} else {
-				fmt.Println("Added Python template.")
-			}
+		if !ok {
+			fmt.Println("Error: Python template not found")
+			return
+		}
+		pythonPath := filepath.Join(cursorDir, "python.mdc")
+		err = os.WriteFile(pythonPath, []byte(pythonTemplate.Content), 0644)
+		if err != nil {
+			fmt.Printf("Error writing python template: %v\n", err)
+			return
+		}
+
+		if err := manager.AddRuleByReference(cursorDir, pythonPath); err != nil {
+			fmt.Printf("Error creating Python template: %v\n", err)
+		} else {
+			fmt.Println("Added Python template.")
 		}
 	}
 
-	// Add general template for all projects
+	// Write general template
 	generalTemplate, ok := templates.Categories["general"].Templates["general"]
-	if ok {
-		if err := templates.CreateTemplate(cursorDir, generalTemplate); err != nil {
-			fmt.Printf("Error creating general template: %v\n", err)
-		} else {
-			fmt.Println("Added general template.")
-		}
+	if !ok {
+		fmt.Println("Error: General template not found")
+		return
+	}
+	generalPath := filepath.Join(cursorDir, "general.mdc")
+	err = os.WriteFile(generalPath, []byte(generalTemplate.Content), 0644)
+	if err != nil {
+		fmt.Printf("Error writing general template: %v\n", err)
+		return
+	}
+
+	// Add general template
+	if err := manager.AddRuleByReference(cursorDir, generalPath); err != nil {
+		fmt.Printf("Error creating general template: %v\n", err)
+	} else {
+		fmt.Println("Added general template.")
 	}
 
 	fmt.Println("\nCursor rules setup complete!")

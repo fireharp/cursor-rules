@@ -50,10 +50,10 @@ func TestCreateTemplate(t *testing.T) {
 	}
 
 	// Check if the content contains frontmatter
-	if !strings.Contains(string(content), "---") || 
-	   !strings.Contains(string(content), "description:") || 
-	   !strings.Contains(string(content), "globs:") || 
-	   !strings.Contains(string(content), "alwaysApply:") {
+	if !strings.Contains(string(content), "---") ||
+		!strings.Contains(string(content), "description:") ||
+		!strings.Contains(string(content), "globs:") ||
+		!strings.Contains(string(content), "alwaysApply:") {
 		t.Fatalf("Template content doesn't include frontmatter. Content: %s", string(content))
 	}
 

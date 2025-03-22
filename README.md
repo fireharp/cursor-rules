@@ -63,21 +63,123 @@ go build -o cursor-rules ./cmd/cursor-rules
 
 ## Usage
 
-Navigate to your project directory and run:
+### Command Reference
 
+### Available Commands
+
+```bash
+# Initialize Cursor Rules with just the init template
+cursor-rules init
+
+# Auto-detect project type, then add rules
+cursor-rules setup
+
+# Add a rule from a local file path
+cursor-rules add ./custom-rules/my-rule.mdc
+
+# Add a rule from a GitHub URL
+cursor-rules add https://github.com/username/repo/blob/main/rules/myrule.mdc
+
+# Alternative method for adding from references (alias for 'add')
+cursor-rules add-ref /Users/me/custom-rule.mdc
+cursor-rules add-ref https://github.com/user/repo/blob/main/rules/python.mdc
+
+# Remove an installed rule
+cursor-rules remove python
+
+# Reinstall / upgrade a rule
+cursor-rules upgrade python
+
+# List installed rules
+cursor-rules list
+
+# List installed rules with detailed information
+cursor-rules list --detailed
+
+# Set lockfile location (project root or .cursor/rules)
+cursor-rules set-lock-location --root  # Store in project root
+cursor-rules set-lock-location         # Store in .cursor/rules
 ```
-cursor-rules
+
+### Package Manager Commands
+
+The cursor-rules tool provides package manager-style commands for managing your rules:
+
+```bash
+# Add a rule from a local file
+cursor-rules add ./custom-rules/my-rule.mdc
+
+# Add a rule from a GitHub URL
+cursor-rules add https://github.com/username/repo/blob/main/rules/python.mdc
+
+# Remove an installed rule
+cursor-rules remove python
+
+# Upgrade an installed rule to the latest version
+cursor-rules upgrade react
+
+# List all installed rules
+cursor-rules list
+
+# List installed rules with detailed information
+cursor-rules list --detailed
 ```
 
-The tool will:
+### Rule References
 
-1. Create a `.cursor/rules` directory if it doesn't exist
-2. Check for any existing templates
-3. Show available template categories
-4. Prompt you to select language templates
-5. Prompt you to select framework templates
-6. Offer to create a general rules template
-7. Offer to create custom templates
+The cursor-rules tool supports adding rules from various references, similar to how npm or pip handle dependencies:
+
+```bash
+# Add a rule from a local file (absolute path)
+cursor-rules add /Users/username/rules/python-style.mdc
+
+# Add a rule from a local file (relative path)
+cursor-rules add ./custom-rules/go-style.mdc
+
+# Add a rule from a GitHub file
+cursor-rules add https://github.com/username/repo/blob/main/rules/react-style.mdc
+
+# Add a rule from a GitHub file with specific commit
+cursor-rules add https://github.com/username/repo/blob/a1b2c3d/rules/python-style.mdc
+```
+
+When rules are added from references, they can be managed just like built-in rules:
+
+```bash
+# Upgrade a rule (will re-fetch from the original source)
+cursor-rules upgrade python-style
+
+# Remove a rule added from a reference
+cursor-rules remove python-style
+
+# View detailed information about installed rules
+cursor-rules list --detailed
+```
+
+### Lockfile Location
+
+By default, the lockfile (`cursor-rules.lock`) is stored in the `.cursor/rules` directory. However, you can configure it to be stored in your project root directory instead:
+
+```bash
+# Set lockfile location to project root
+cursor-rules set-lock-location --root
+
+# Set lockfile location back to .cursor/rules
+cursor-rules set-lock-location
+```
+
+This can be useful for tracking the lockfile in version control or for better visibility of installed rules.
+
+### Help
+
+```bash
+# Show help and usage information
+cursor-rules help
+```
+
+## How It Works
+
+Cursor Rules are stored in the `.cursor/rules` directory in your project root. Each rule is a file with a `.mdc` extension containing instructions for Cursor AI. When you use the package manager commands, a `cursor-rules.lock` file is created to track installed rules.
 
 ## Template Examples
 
