@@ -4,7 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.1.4] - 2023-03-22
+## [0.1.5] - 2025-03-23
+
+### Added
+
+- Support for Homebrew tap formula updates during release
+- Enhanced error handling for rule installations
+
+### Changed
+
+- Improved release automation workflow
+- Optimized binary size with better build flags
+
+## [0.1.4] - 2025-03-22
 
 ### Added
 
