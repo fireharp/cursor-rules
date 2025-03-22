@@ -297,3 +297,169 @@ MEMO:
 - CursorRules.setup detects project type and adds appropriate templates
 - Project detection checks for package.json, setup.py, requirements.txt, etc.
 - Testing can be done with example projects in go-claude/examples/
+
+## TS: 2025-03-22 14:47:26 CET
+
+## PROBLEM: Deprecated io/ioutil package usage in cursor-rules CLI tool
+
+WHAT WAS DONE:
+
+- Replaced deprecated io/ioutil import with os package
+- Replaced ioutil.ReadFile with os.ReadFile
+- Ensured code is compliant with Go 1.16+ recommendations
+
+---
+
+MEMO:
+
+- The io/ioutil package was deprecated in Go 1.16
+- Its functionality is now provided by package io or package os
+- For file reading/writing, os.ReadFile and os.WriteFile should be used instead of ioutil.ReadFile and ioutil.WriteFile
+- For other I/O operations, equivalent functions are available in the io and os packages
+
+## TS: 2025-03-22 19:27:09 CET
+
+## PROBLEM: Need to plan implementation of a package manager-style API for cursor rules
+
+WHAT WAS DONE:
+
+- Created task.md file with detailed implementation plan
+- Outlined 5 major steps for adding package manager functionality
+- Designed two-layer architecture approach with low-level manager package and high-level CLI commands
+- Documented necessary changes to existing code while maintaining backward compatibility
+
+---
+
+MEMO:
+The package manager-style API will provide npm-like functionality (add, remove, upgrade, list) while tracking installed rules in a lockfile. This approach allows for more granular management of rules and creates a foundation for future features like versioning and remote rule repositories.
+
+## TS: 2025-03-22 19:36:33 CET
+
+## PROBLEM: Need to address code review feedback for the package manager-style API implementation
+
+WHAT WAS DONE:
+
+- Fixed a critical bug where template modifications weren't updating the global map
+- Added comprehensive test suite for the manager package with 7 test functions
+- Verified proper operation of LockFile operations and rule management functions
+- Updated README.md with documentation and examples for the new package manager commands
+- Ensured consistent error handling throughout the codebase
+- Made minor improvements to code readability and maintainability
+
+---
+
+MEMO:
+The package manager API is now fully functional with proper test coverage. The LockFile approach works well for tracking installed rules, and all core functions (add, remove, upgrade, list) have been tested for both normal operation and edge cases. The main bug found in the review (template modifications not being stored in the global map) has been fixed, ensuring that template content changes are correctly persisted.
+
+## TS: 2025-03-22 20:30:00 CET
+
+## PROBLEM: Need to implement package manager-style API for cursor rules
+
+WHAT WAS DONE:
+
+- Created pkg/manager package with core rule management functions
+- Implemented LockFile structure for tracking installed rules
+- Added AddRule, RemoveRule, UpgradeRule, and ListInstalledRules functions
+- Updated main.go to support new subcommands (add, remove, upgrade, list)
+- Refactored existing init and setup commands to use the manager package
+- Maintained backward compatibility with flag-style syntax
+- Added comprehensive help information via showHelp() function
+
+---
+
+MEMO:
+The package manager implementation is now functional and provides npm-like commands for managing cursor rules. Rules are tracked in a cursor-rules.lock file in the .cursor/rules directory. The existing functionality is preserved while adding new capabilities. Next steps would be to add tests and update documentation.
+
+## TS: 2025-03-22 22:23:15 CET
+
+## PROBLEM: Need to extend cursor-rules manager to support multiple reference types (local/GitHub)
+
+WHAT WAS DONE:
+
+- Created a detailed task plan for enhancing the lockfile structure to support various reference types
+- Designed an improved RuleSource structure that can track source type, reference path, git ref, etc.
+- Outlined implementation approach for handling local files, GitHub single files, and GitHub directories
+- Identified required CLI changes to support the new reference types
+- Planned backward compatibility to ensure existing functionality continues to work
+
+---
+
+MEMO:
+This enhancement will transform cursor-rules into a true package manager, similar to npm or pip, allowing users to reference rules from various sources (local files, GitHub URLs with commits/tags/branches, directories) while maintaining reproducibility and upgrade paths. The RuleSource structure will provide the metadata needed to properly track where each rule came from and how to upgrade it.
+
+## TS: 2025-03-22 22:29:12 CET
+
+## PROBLEM: Enhanced version of the rule reference management implementation completed
+
+WHAT WAS DONE:
+
+- Completed the implementation of enhanced lockfile structure for multiple reference types
+- Added tests to verify correct functionality of AddRuleByReference, UpgradeRule, and RemoveRule
+- Updated documentation in README.md with comprehensive examples
+- Maintained backward compatibility with existing functionality
+- Completed all marked tasks in the task-reference-enhancement.md file
+
+---
+
+MEMO:
+The cursor-rules tool now functions as a flexible, package manager-style system that can handle multiple types of references, including local files and GitHub URLs. It maintains backward compatibility with the existing built-in template system while providing powerful new features. The implementation includes proper error handling, type safety, and comprehensive testing. Future enhancements could include completing the GitHub directory support and implementing commit resolution for branch references.
+
+## TS: 2025-03-22 22:44:27 CET
+
+## PROBLEM: Need to add support for storing lockfile in project root
+
+WHAT WAS DONE:
+
+- Implemented a configurable lockfile location system that allows storing cursor-rules.lock in project root
+- Added functions to check both possible lockfile locations and migrate between them
+- Created SetLockFileLocation function to handle setting and migration of lockfile
+- Added set-lock-location CLI command with --root flag to control lockfile location
+- Updated documentation in README.md to explain the feature
+- Added comprehensive migration support to automatically move lockfiles when location changes
+- Maintained backward compatibility by checking both locations when loading
+
+---
+
+MEMO:
+The lockfile location feature provides flexibility for users who prefer to have the cursor-rules.lock file visible in their project root for version control or easier access. The implementation ensures that existing functionality continues to work, and users can easily switch between locations with a simple command. Both locations are checked when loading, ensuring a smooth transition when the location is changed.
+
+## TS: 2025-03-22 22:50:09 CET
+
+## PROBLEM: Need to sync and track local rules that exist in the filesystem but not in the lockfile
+
+WHAT WAS DONE:
+
+- Implemented SyncLocalRules function to scan the .cursor/rules directory for all .mdc files
+- Added automatic rule syncing to the list command to ensure the lockfile reflects all rules
+- Enhanced file detection to handle both top-level rule files and rules in subdirectories
+- Fixed path handling to get correct relative paths for locally installed rules
+- Added display of newly discovered local rules for better user visibility
+- Ensured compatibility with both directly added rules and GitHub-sourced rules
+
+---
+
+MEMO:
+The sync functionality automatically detects and registers any .mdc files that exist in the rules directory but aren't tracked in the lockfile. This fixes the issue where rules physically present in the filesystem weren't showing up in the `list` command output. This ensures greater visibility of all available rules and provides a more accurate representation of the cursor rules state, bringing the rules directory and lockfile into sync.
+
+## TS: 2025-03-23 00:28:09 CET
+
+## PROBLEM: Need to release version 0.1.4 of cursor-rules CLI tool
+
+WHAT WAS DONE:
+
+- Executed complete release process
+- Updated version in taskfile.yml from 0.1.3 to 0.1.4
+- Updated CHANGELOG.md with v0.1.4 section
+- Verified code with go fmt, go vet, and tests
+- Validated GoReleaser configuration
+- Created and pushed git tag v0.1.4 to trigger release workflow
+- Set up automatic Homebrew formula update
+
+---
+
+MEMO:
+
+- Release workflow builds binaries for Linux, macOS, and Windows
+- Release assets automatically uploaded to GitHub Releases
+- Homebrew formula automatically updated in fireharp/homebrew-tap
+- Future releases should follow same process: update version, update changelog, commit, tag, push
