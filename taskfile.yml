@@ -4,7 +4,7 @@ vars:
   BINARY: cursor-rules
   BUILD_DIR: ./bin
   MAIN_PKG: ./cmd/cursor-rules
-  VERSION: 0.1.3
+  VERSION: 0.1.4
   GOOS: "{{OS}}"
   GOARCH: "{{ARCH}}"
 

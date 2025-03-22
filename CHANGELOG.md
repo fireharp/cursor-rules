@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.4] - 2023-03-22
+
 ### Added
 
 - Initial project setup
