@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,9 +14,10 @@ import (
 
 // These variables will be set by goreleaser
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version               = "dev"
+	commit                = "none"
+	date                  = "unknown"
+	defaultCursorRulesDir = "cursor-rules"
 )
 
 func main() {
@@ -94,7 +94,7 @@ func main() {
 			"Run CursorRules.setup or CR_SETUP in Cursor",
 			-1)
 
-		if err := templates.CreateTemplate(cursorDir, initTemplate); err != nil {
+		if err := templates.CreateTemplate(cursorDir+"/"+defaultCursorRulesDir, initTemplate); err != nil {
 			fmt.Printf("Error creating init template: %v\n", err)
 			os.Exit(1)
 		}
@@ -264,7 +264,7 @@ func setupProject(projectDir, cursorDir string) {
 
 // hasReactDependency checks if package.json contains React dependency
 func hasReactDependency(packageJsonPath string) bool {
-	data, err := ioutil.ReadFile(packageJsonPath)
+	data, err := os.ReadFile(packageJsonPath)
 	if err != nil {
 		return false
 	}
