@@ -463,3 +463,24 @@ MEMO:
 - Release assets automatically uploaded to GitHub Releases
 - Homebrew formula automatically updated in fireharp/homebrew-tap
 - Future releases should follow same process: update version, update changelog, commit, tag, push
+
+## TS: 2025-03-23 00:49:29 CET
+
+## PROBLEM: Need to release version 0.1.5 of cursor-rules CLI tool
+
+WHAT WAS DONE:
+
+- Updated version in taskfile.yml from 0.1.4 to 0.1.5
+- Updated CHANGELOG.md with detailed v0.1.5 section
+- Executed pre-release checks (go fmt, go vet, tests)
+- Verified GoReleaser configuration
+- Created and pushed git tag v0.1.5 to trigger GitHub Actions release workflow
+
+---
+
+MEMO:
+
+- Release workflow will build binaries for all supported platforms
+- GitHub Actions will automatically update the Homebrew formula in fireharp/homebrew-tap
+- Users can update with: `brew update && brew upgrade cursor-rules`
+- Release includes several enhancements as documented in CHANGELOG.md
