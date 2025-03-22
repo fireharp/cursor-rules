@@ -2,6 +2,19 @@
 
 A CLI tool to help initialize and manage [Cursor Editor](https://cursor.sh/) rules for your projects.
 
+## Quick Start
+
+```bash
+# Install with Homebrew
+brew install fireharp/tap/cursor-rules
+
+# Initialize with just the init template
+cursor-rules init
+
+# Auto-detect project type and setup appropriate rules
+cursor-rules setup
+```
+
 ## About
 
 This tool makes it easy to set up and manage `.cursor/rules` configuration for Cursor editor. It provides:
@@ -11,61 +24,9 @@ This tool makes it easy to set up and manage `.cursor/rules` configuration for C
 - Ability to create custom rule templates
 - Interactive CLI interface
 
-## Installation
-
-### Using Homebrew
-
-```bash
-# Install directly
-brew install fireharp/tap/cursor-rules
-
-# Or, tap first and then install
-brew tap fireharp/tap
-brew install cursor-rules
-```
-
-### From source
-
-```
-go install github.com/fireharp/cursor-rules/cmd/cursor-rules@latest
-```
-
-### Using Task
-
-This project uses [Task](https://taskfile.dev/) as a task runner. First, [install Task](https://taskfile.dev/installation/).
-
-Then you can run:
-
-```bash
-# Build the binary
-task build
-
-# Run the application
-task run
-
-# Run tests
-task test
-
-# Install the binary
-task install
-
-# Clean build artifacts
-task clean
-```
-
-### Manual build
-
-```
-git clone https://github.com/fireharp/cursor-rules.git
-cd cursor-rules
-go build -o cursor-rules ./cmd/cursor-rules
-```
-
 ## Usage
 
 ### Command Reference
-
-### Available Commands
 
 ```bash
 # Initialize Cursor Rules with just the init template
@@ -82,7 +43,6 @@ cursor-rules add https://github.com/username/repo/blob/main/rules/myrule.mdc
 
 # Alternative method for adding from references (alias for 'add')
 cursor-rules add-ref /Users/me/custom-rule.mdc
-cursor-rules add-ref https://github.com/user/repo/blob/main/rules/python.mdc
 
 # Remove an installed rule
 cursor-rules remove python
@@ -99,30 +59,6 @@ cursor-rules list --detailed
 # Set lockfile location (project root or .cursor/rules)
 cursor-rules set-lock-location --root  # Store in project root
 cursor-rules set-lock-location         # Store in .cursor/rules
-```
-
-### Package Manager Commands
-
-The cursor-rules tool provides package manager-style commands for managing your rules:
-
-```bash
-# Add a rule from a local file
-cursor-rules add ./custom-rules/my-rule.mdc
-
-# Add a rule from a GitHub URL
-cursor-rules add https://github.com/username/repo/blob/main/rules/python.mdc
-
-# Remove an installed rule
-cursor-rules remove python
-
-# Upgrade an installed rule to the latest version
-cursor-rules upgrade react
-
-# List all installed rules
-cursor-rules list
-
-# List installed rules with detailed information
-cursor-rules list --detailed
 ```
 
 ### Rule References
@@ -206,7 +142,57 @@ A general template with common coding rules that apply to most projects.
 
 You can create your own templates with custom rules that fit your specific needs.
 
+## Installation
+
+### Using Homebrew
+
+```bash
+# Install directly
+brew install fireharp/tap/cursor-rules
+
+# Or, tap first and then install
+brew tap fireharp/tap
+brew install cursor-rules
+```
+
+### From source
+
+```
+go install github.com/fireharp/cursor-rules/cmd/cursor-rules@latest
+```
+
 ## Development and Contributing
+
+### Using Task
+
+This project uses [Task](https://taskfile.dev/) as a task runner. First, [install Task](https://taskfile.dev/installation/).
+
+Then you can run:
+
+```bash
+# Build the binary
+task build
+
+# Run the application
+task run
+
+# Run tests
+task test
+
+# Install the binary
+task install
+
+# Clean build artifacts
+task clean
+```
+
+### Manual build
+
+```
+git clone https://github.com/fireharp/cursor-rules.git
+cd cursor-rules
+go build -o cursor-rules ./cmd/cursor-rules
+```
 
 ### Development workflow
 
