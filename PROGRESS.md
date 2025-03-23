@@ -484,3 +484,16 @@ MEMO:
 - GitHub Actions will automatically update the Homebrew formula in fireharp/homebrew-tap
 - Users can update with: `brew update && brew upgrade cursor-rules`
 - Release includes several enhancements as documented in CHANGELOG.md
+
+## TS: 2025-03-23 15:54:58 CET
+
+## PROBLEM: Users need a way to share Cursor Rules configurations with others while ensuring privacy and handling conflicts
+
+WHAT WAS DONE:
+
+- Created task plan for implementing "share rules" and "restore from shared" features in task-share-rules-feature.md
+
+---
+
+MEMO:
+This feature will enable collaboration through rule sharing, similar to package.json/requirements.txt in other package managers

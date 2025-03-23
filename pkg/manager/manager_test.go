@@ -2,6 +2,7 @@ package manager
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -456,4 +457,382 @@ This is a test rule created for testing AddRuleByReference.`
 	if _, err := os.Stat(destPath); !os.IsNotExist(err) {
 		t.Errorf("Rule file was not deleted")
 	}
+}
+
+// TestShareRules tests the ShareRules function
+func TestShareRules(t *testing.T) {
+	// Create a temporary directory for the test
+	tempDir, err := os.MkdirTemp("", "cursor-rules-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create a temporary cursor rules dir
+	cursorDir := filepath.Join(tempDir, ".cursor", "rules")
+	if err := os.MkdirAll(cursorDir, 0755); err != nil {
+		t.Fatalf("Failed to create cursor rules dir: %v", err)
+	}
+
+	// Create test rules
+	testRules := []RuleSource{
+		{
+			Key:        "test-builtin",
+			SourceType: SourceTypeBuiltIn,
+			Reference:  "test-builtin",
+			Category:   "test",
+			LocalFiles: []string{"test-builtin.mdc"},
+		},
+		{
+			Key:        "test-github",
+			SourceType: SourceTypeGitHubFile,
+			Reference:  "https://github.com/user/repo/blob/main/rules/test.mdc",
+			GitRef:     "main",
+			LocalFiles: []string{"test-github.mdc"},
+		},
+		{
+			Key:        "test-local-abs",
+			SourceType: SourceTypeLocalAbs,
+			Reference:  "/Users/test/rules/test.mdc",
+			LocalFiles: []string{"test-local-abs.mdc"},
+		},
+		{
+			Key:        "test-local-rel",
+			SourceType: SourceTypeLocalRel,
+			Reference:  "./rules/test.mdc",
+			LocalFiles: []string{"test-local-rel.mdc"},
+		},
+	}
+
+	// Create test .mdc files
+	for _, rule := range testRules {
+		content := []byte(fmt.Sprintf("# Test rule for %s\n\nThis is a test rule.", rule.Key))
+		filePath := filepath.Join(cursorDir, rule.LocalFiles[0])
+		if err := os.WriteFile(filePath, content, 0644); err != nil {
+			t.Fatalf("Failed to create test rule file: %v", err)
+		}
+	}
+
+	// Create and save a test lockfile
+	lock := &LockFile{
+		Rules: testRules,
+	}
+	if err := lock.Save(cursorDir); err != nil {
+		t.Fatalf("Failed to save test lockfile: %v", err)
+	}
+
+	// Define the path for the shareable file
+	shareFilePath := filepath.Join(tempDir, "cursor-rules-share.json")
+
+	// Test ShareRules without embedded content
+	t.Run("WithoutEmbeddedContent", func(t *testing.T) {
+		if err := ShareRules(cursorDir, shareFilePath, false); err != nil {
+			t.Fatalf("ShareRules failed: %v", err)
+		}
+
+		// Check if the file was created
+		if _, err := os.Stat(shareFilePath); os.IsNotExist(err) {
+			t.Fatalf("Shareable file was not created")
+		}
+
+		// Read and parse the shareable file
+		data, err := os.ReadFile(shareFilePath)
+		if err != nil {
+			t.Fatalf("Failed to read shareable file: %v", err)
+		}
+
+		var shareable ShareableLock
+		if err := json.Unmarshal(data, &shareable); err != nil {
+			t.Fatalf("Failed to parse shareable file: %v", err)
+		}
+
+		// Check format version
+		if shareable.FormatVersion != 1 {
+			t.Errorf("Expected format version 1, got %d", shareable.FormatVersion)
+		}
+
+		// Check number of rules
+		if len(shareable.Rules) != len(testRules) {
+			t.Errorf("Expected %d rules, got %d", len(testRules), len(shareable.Rules))
+		}
+
+		// Check if local rules are marked as unshareable
+		for _, sr := range shareable.Rules {
+			if sr.SourceType == SourceTypeLocalAbs || sr.SourceType == SourceTypeLocalRel {
+				if !sr.Unshareable {
+					t.Errorf("Expected local rule %s to be marked as unshareable", sr.Key)
+				}
+				// Check that content is not embedded
+				if sr.Content != "" {
+					t.Errorf("Expected no embedded content for rule %s", sr.Key)
+				}
+			}
+		}
+	})
+
+	// Test ShareRules with embedded content
+	t.Run("WithEmbeddedContent", func(t *testing.T) {
+		shareFilePathWithEmbed := filepath.Join(tempDir, "cursor-rules-share-embed.json")
+		if err := ShareRules(cursorDir, shareFilePathWithEmbed, true); err != nil {
+			t.Fatalf("ShareRules with embedded content failed: %v", err)
+		}
+
+		// Read and parse the shareable file
+		data, err := os.ReadFile(shareFilePathWithEmbed)
+		if err != nil {
+			t.Fatalf("Failed to read shareable file with embedded content: %v", err)
+		}
+
+		var shareable ShareableLock
+		if err := json.Unmarshal(data, &shareable); err != nil {
+			t.Fatalf("Failed to parse shareable file with embedded content: %v", err)
+		}
+
+		// Check that at least some local rules have embedded content
+		hasEmbeddedContent := false
+		for _, sr := range shareable.Rules {
+			if (sr.SourceType == SourceTypeLocalAbs || sr.SourceType == SourceTypeLocalRel) && sr.Content != "" {
+				hasEmbeddedContent = true
+				// Validate content
+				expectedContent := fmt.Sprintf("# Test rule for %s\n\nThis is a test rule.", sr.Key)
+				if sr.Content != expectedContent {
+					t.Errorf("Embedded content for rule %s doesn't match expected content", sr.Key)
+				}
+				// Validate filename
+				if sr.Filename == "" {
+					t.Errorf("Expected filename for rule %s with embedded content", sr.Key)
+				}
+				// Should not be marked as unshareable if it has content
+				if sr.Unshareable {
+					t.Errorf("Rule %s with embedded content should not be marked as unshareable", sr.Key)
+				}
+			}
+		}
+		if !hasEmbeddedContent {
+			t.Errorf("No rules with embedded content found")
+		}
+	})
+}
+
+// TestRestoreFromShared tests the RestoreFromShared function
+func TestRestoreFromShared(t *testing.T) {
+	// Create a temporary directory for the test
+	tempDir, err := os.MkdirTemp("", "cursor-rules-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create a temporary cursor rules dir
+	cursorDir := filepath.Join(tempDir, ".cursor", "rules")
+	if err := os.MkdirAll(cursorDir, 0755); err != nil {
+		t.Fatalf("Failed to create cursor rules dir: %v", err)
+	}
+
+	// Create a test shareable file with different types of rules
+	shareable := ShareableLock{
+		FormatVersion: 1,
+		Rules: []ShareableRule{
+			{
+				Key:        "test-builtin",
+				SourceType: SourceTypeBuiltIn,
+				Reference:  "test-builtin",
+				Category:   "test",
+			},
+			{
+				Key:         "test-unshareable",
+				SourceType:  SourceTypeLocalAbs,
+				Reference:   "/Users/test/rules/test.mdc",
+				Unshareable: true,
+			},
+			{
+				Key:        "test-embedded",
+				SourceType: SourceTypeLocalRel,
+				Reference:  "./rules/test.mdc",
+				Content:    "# Test embedded rule\n\nThis is an embedded test rule.",
+				Filename:   "test-embedded.mdc",
+			},
+		},
+	}
+
+	// Save the shareable file
+	shareFilePath := filepath.Join(tempDir, "cursor-rules-share-test.json")
+	data, _ := json.MarshalIndent(shareable, "", "  ")
+	if err := os.WriteFile(shareFilePath, data, 0644); err != nil {
+		t.Fatalf("Failed to create test shareable file: %v", err)
+	}
+
+	// Store original functions to restore after test
+	origAddRuleByReferenceFn := AddRuleByReferenceFn
+	origAddRuleFn := AddRuleFn
+	defer func() {
+		// Restore original functions after test
+		AddRuleByReferenceFn = origAddRuleByReferenceFn
+		AddRuleFn = origAddRuleFn
+	}()
+
+	// Set mock functions
+	AddRuleByReferenceFn = func(cursorDir, ref string) error {
+		// Just create a dummy file and record in lockfile
+		lock, _ := LoadLockFile(cursorDir)
+		key := generateRuleKey(ref)
+
+		// Simulate adding from GitHub reference
+		if strings.Contains(ref, "github.com") {
+			rule := RuleSource{
+				Key:        key,
+				SourceType: SourceTypeGitHubFile,
+				Reference:  ref,
+				LocalFiles: []string{key + ".mdc"},
+			}
+			lock.Rules = append(lock.Rules, rule)
+			return lock.Save(cursorDir)
+		}
+		return fmt.Errorf("unsupported reference in test")
+	}
+
+	AddRuleFn = func(cursorDir, category, ruleKey string) error {
+		// Just create a dummy file and record in lockfile
+		lock, _ := LoadLockFile(cursorDir)
+		rule := RuleSource{
+			Key:        ruleKey,
+			SourceType: SourceTypeBuiltIn,
+			Reference:  ruleKey,
+			Category:   category,
+			LocalFiles: []string{ruleKey + ".mdc"},
+		}
+		lock.Rules = append(lock.Rules, rule)
+		return lock.Save(cursorDir)
+	}
+
+	// Test RestoreFromShared with auto-resolve "skip"
+	t.Run("WithAutoResolveSkip", func(t *testing.T) {
+		// Create a test lockfile with an existing rule to test conflict resolution
+		existingLock := &LockFile{
+			Rules: []RuleSource{
+				{
+					Key:        "test-builtin",
+					SourceType: SourceTypeBuiltIn,
+					Reference:  "test-builtin",
+					Category:   "existing",
+					LocalFiles: []string{"test-builtin.mdc"},
+				},
+			},
+		}
+		if err := existingLock.Save(cursorDir); err != nil {
+			t.Fatalf("Failed to save existing lockfile: %v", err)
+		}
+
+		// Restore with auto-resolve "skip"
+		if err := RestoreFromShared(cursorDir, shareFilePath, "skip"); err != nil {
+			t.Fatalf("RestoreFromShared failed: %v", err)
+		}
+
+		// Check the lockfile - test-builtin should still be from the original category
+		lock, err := LoadLockFile(cursorDir)
+		if err != nil {
+			t.Fatalf("Failed to load lockfile after restore: %v", err)
+		}
+
+		// The existing rule should remain unchanged
+		var foundExisting bool
+		for _, rule := range lock.Rules {
+			if rule.Key == "test-builtin" && rule.Category == "existing" {
+				foundExisting = true
+				break
+			}
+		}
+		if !foundExisting {
+			t.Errorf("Existing rule was overwritten despite skip option")
+		}
+
+		// The embedded rule should be added
+		var foundEmbedded bool
+		for _, rule := range lock.Rules {
+			if rule.Key == "test-embedded" {
+				foundEmbedded = true
+				break
+			}
+		}
+		if !foundEmbedded {
+			t.Errorf("Embedded rule was not added")
+		}
+
+		// The unshareable rule should be skipped
+		var foundUnshareable bool
+		for _, rule := range lock.Rules {
+			if rule.Key == "test-unshareable" {
+				foundUnshareable = true
+				break
+			}
+		}
+		if foundUnshareable {
+			t.Errorf("Unshareable rule was incorrectly added")
+		}
+
+		// Check if the embedded file was created
+		embeddedFilePath := filepath.Join(cursorDir, "test-embedded.mdc")
+		if _, err := os.Stat(embeddedFilePath); os.IsNotExist(err) {
+			t.Errorf("Embedded file was not created")
+		} else {
+			// Check content
+			content, err := os.ReadFile(embeddedFilePath)
+			if err != nil {
+				t.Errorf("Failed to read embedded file: %v", err)
+			} else if string(content) != "# Test embedded rule\n\nThis is an embedded test rule." {
+				t.Errorf("Embedded file content doesn't match expected content")
+			}
+		}
+	})
+
+	// Test RestoreFromShared with auto-resolve "rename"
+	t.Run("WithAutoResolveRename", func(t *testing.T) {
+		// Clear the cursor dir
+		os.RemoveAll(cursorDir)
+		os.MkdirAll(cursorDir, 0755)
+
+		// Create a test lockfile with an existing rule to test conflict resolution
+		existingLock := &LockFile{
+			Rules: []RuleSource{
+				{
+					Key:        "test-builtin",
+					SourceType: SourceTypeBuiltIn,
+					Reference:  "test-builtin",
+					Category:   "existing",
+					LocalFiles: []string{"test-builtin.mdc"},
+				},
+			},
+		}
+		if err := existingLock.Save(cursorDir); err != nil {
+			t.Fatalf("Failed to save existing lockfile: %v", err)
+		}
+
+		// Restore with auto-resolve "rename"
+		if err := RestoreFromShared(cursorDir, shareFilePath, "rename"); err != nil {
+			t.Fatalf("RestoreFromShared failed: %v", err)
+		}
+
+		// Check the lockfile - should have test-builtin and test-builtin-2
+		lock, err := LoadLockFile(cursorDir)
+		if err != nil {
+			t.Fatalf("Failed to load lockfile after restore: %v", err)
+		}
+
+		// Both the existing rule and renamed rule should exist
+		var foundExisting, foundRenamed bool
+		for _, rule := range lock.Rules {
+			if rule.Key == "test-builtin" && rule.Category == "existing" {
+				foundExisting = true
+			}
+			if rule.Key == "test-builtin-2" && rule.Category == "test" {
+				foundRenamed = true
+			}
+		}
+		if !foundExisting {
+			t.Errorf("Existing rule was removed")
+		}
+		if !foundRenamed {
+			t.Errorf("Rule was not renamed correctly")
+		}
+	})
 }

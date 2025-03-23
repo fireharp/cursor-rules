@@ -40,6 +40,14 @@ func main() {
 	lockLocationCmd := flag.NewFlagSet("set-lock-location", flag.ExitOnError)
 	useRootFlag := lockLocationCmd.Bool("root", false, "Use project root for lockfile location (if false, uses .cursor/rules)")
 
+	// Add share and restore commands
+	shareCmd := flag.NewFlagSet("share", flag.ExitOnError)
+	shareOutputFlag := shareCmd.String("output", "cursor-rules-share.json", "Output file path for the shareable file")
+	shareEmbedFlag := shareCmd.Bool("embed", false, "Embed .mdc content for local references")
+
+	restoreCmd := flag.NewFlagSet("restore", flag.ExitOnError)
+	restoreAutoResolveFlag := restoreCmd.String("auto-resolve", "", "Automatically resolve conflicts (options: skip, overwrite, rename)")
+
 	// Parse flags
 	flag.Parse()
 
@@ -240,6 +248,48 @@ func main() {
 			fmt.Printf("Lock file path: %s\n", newPath)
 			return
 
+		case "share":
+			// Usage: cursor-rules share [--output file] [--embed]
+			_ = shareCmd.Parse(args[1:])
+			outputPath := *shareOutputFlag
+			embedContent := *shareEmbedFlag
+
+			if err := manager.ShareRules(cursorDir, outputPath, embedContent); err != nil {
+				fmt.Printf("Error sharing rules: %v\n", err)
+				return
+			}
+
+			if embedContent {
+				fmt.Printf("Rules shared with embedded content to %s\n", outputPath)
+			} else {
+				fmt.Printf("Rules shared to %s\n", outputPath)
+			}
+			return
+
+		case "restore":
+			// Usage: cursor-rules restore <file> [--auto-resolve (skip|overwrite|rename)]
+			_ = restoreCmd.Parse(args[1:])
+			if restoreCmd.NArg() < 1 {
+				fmt.Println("Usage: cursor-rules restore <file> [--auto-resolve (skip|overwrite|rename)]")
+				return
+			}
+			sharedFilePath := restoreCmd.Arg(0)
+			autoResolve := *restoreAutoResolveFlag
+
+			// Validate auto-resolve option
+			if autoResolve != "" && autoResolve != "skip" && autoResolve != "overwrite" && autoResolve != "rename" {
+				fmt.Println("Invalid auto-resolve option. Must be one of: skip, overwrite, rename")
+				return
+			}
+
+			if err := manager.RestoreFromShared(cursorDir, sharedFilePath, autoResolve); err != nil {
+				fmt.Printf("Error restoring rules: %v\n", err)
+				return
+			}
+
+			fmt.Println("Rules successfully restored")
+			return
+
 		case "init":
 			// Handle init command
 			runInitCommand(cursorDir)
@@ -283,6 +333,8 @@ func showHelp() {
 	fmt.Println("  upgrade <rule>      Reinstall / upgrade a rule")
 	fmt.Println("  list [--detailed]   List installed rules (--detailed for more info)")
 	fmt.Println("  set-lock-location   Set the location of the lockfile (--root for project root)")
+	fmt.Println("  share [--output <file>] [--embed]  Share rules to a file (--embed for local rule content)")
+	fmt.Println("  restore <file> [--auto-resolve <option>]  Restore rules from a shared file")
 	fmt.Println("  --init              Same as the 'init' command")
 	fmt.Println("  --setup             Same as the 'setup' command")
 	fmt.Println("  --version           Print version information")
@@ -296,6 +348,8 @@ func showHelp() {
 	fmt.Println("  cursor-rules remove python")
 	fmt.Println("  cursor-rules list --detailed")
 	fmt.Println("  cursor-rules set-lock-location --root")
+	fmt.Println("  cursor-rules share --output my-rules.json --embed")
+	fmt.Println("  cursor-rules restore shared-rules.json --auto-resolve overwrite")
 }
 
 // runInitCommand initializes cursor rules with just the init template

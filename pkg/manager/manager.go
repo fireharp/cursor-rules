@@ -325,56 +325,23 @@ func generateRuleKey(ref string) string {
 	return ref
 }
 
+// AddRuleByReferenceFunc is the function type for AddRuleByReference, used for testing
+type AddRuleByReferenceFunc func(cursorDir, ref string) error
+
+// AddRuleFunc is the function type for AddRule, used for testing
+type AddRuleFunc func(cursorDir, category, ruleKey string) error
+
+// AddRuleByReferenceFn is a variable holding the AddRuleByReference implementation
+// This allows tests to replace the implementation temporarily
+var AddRuleByReferenceFn AddRuleByReferenceFunc = addRuleByReferenceImpl
+
+// AddRuleFn is a variable holding the AddRule implementation
+// This allows tests to replace the implementation temporarily
+var AddRuleFn AddRuleFunc = addRuleImpl
+
 // AddRuleByReference adds a rule from a reference (local path, GitHub URL, etc.)
 func AddRuleByReference(cursorDir, ref string) error {
-	// 1. Load the lockfile
-	lock, err := LoadLockFile(cursorDir)
-	if err != nil {
-		return err
-	}
-
-	// 2. Generate a rule key
-	ruleKey := generateRuleKey(ref)
-
-	// 3. Check if it's already installed
-	if lock.IsInstalled(ruleKey) {
-		return fmt.Errorf("rule %q is already installed", ruleKey)
-	}
-
-	// 4. Determine the type of reference and handle accordingly
-	var ruleSource RuleSource
-	var handleErr error
-
-	switch {
-	case isAbsolutePath(ref):
-		ruleSource, handleErr = handleLocalFile(cursorDir, ref, true)
-	case isRelativePath(ref):
-		ruleSource, handleErr = handleLocalFile(cursorDir, ref, false)
-	case isGitHubBlobURL(ref):
-		ruleSource, handleErr = handleGitHubBlob(cursorDir, ref)
-	case isGitHubTreeURL(ref):
-		ruleSource, handleErr = handleGitHubDir(cursorDir, ref)
-	default:
-		// Try to handle as a built-in template reference (category/key format)
-		parts := strings.Split(ref, "/")
-		if len(parts) == 2 {
-			return AddRule(cursorDir, parts[0], parts[1])
-		}
-		return fmt.Errorf("unrecognized rule reference: %s", ref)
-	}
-
-	if handleErr != nil {
-		return handleErr
-	}
-
-	// 5. Update lockfile
-	lock.Rules = append(lock.Rules, ruleSource)
-	err = lock.Save(cursorDir)
-	if err != nil {
-		return fmt.Errorf("failed to save lockfile: %w", err)
-	}
-
-	return nil
+	return AddRuleByReferenceFn(cursorDir, ref)
 }
 
 // handleLocalFile copies a local .mdc file to .cursor/rules
@@ -500,6 +467,11 @@ func handleGitHubDir(cursorDir, ref string) (RuleSource, error) {
 // AddRule installs the rule with the given key from a specified category into .cursor/rules.
 // It also updates the lockfile to track what is installed.
 func AddRule(cursorDir string, category string, ruleKey string) error {
+	return AddRuleFn(cursorDir, category, ruleKey)
+}
+
+// addRuleImpl is the actual implementation of AddRule
+func addRuleImpl(cursorDir string, category string, ruleKey string) error {
 	// 1. Find the template in the global templates map
 	cat, ok := templates.Categories[category]
 	if !ok {
@@ -542,6 +514,58 @@ func AddRule(cursorDir string, category string, ruleKey string) error {
 	// For backward compatibility, also update Installed
 	lock.Installed = append(lock.Installed, ruleKey)
 
+	err = lock.Save(cursorDir)
+	if err != nil {
+		return fmt.Errorf("failed to save lockfile: %w", err)
+	}
+
+	return nil
+}
+
+// addRuleByReferenceImpl is the actual implementation of AddRuleByReference
+func addRuleByReferenceImpl(cursorDir, ref string) error {
+	// 1. Load the lockfile
+	lock, err := LoadLockFile(cursorDir)
+	if err != nil {
+		return err
+	}
+
+	// 2. Generate a rule key
+	ruleKey := generateRuleKey(ref)
+
+	// 3. Check if it's already installed
+	if lock.IsInstalled(ruleKey) {
+		return fmt.Errorf("rule %q is already installed", ruleKey)
+	}
+
+	// 4. Determine the type of reference and handle accordingly
+	var ruleSource RuleSource
+	var handleErr error
+
+	switch {
+	case isAbsolutePath(ref):
+		ruleSource, handleErr = handleLocalFile(cursorDir, ref, true)
+	case isRelativePath(ref):
+		ruleSource, handleErr = handleLocalFile(cursorDir, ref, false)
+	case isGitHubBlobURL(ref):
+		ruleSource, handleErr = handleGitHubBlob(cursorDir, ref)
+	case isGitHubTreeURL(ref):
+		ruleSource, handleErr = handleGitHubDir(cursorDir, ref)
+	default:
+		// Try to handle as a built-in template reference (category/key format)
+		parts := strings.Split(ref, "/")
+		if len(parts) == 2 {
+			return AddRule(cursorDir, parts[0], parts[1])
+		}
+		return fmt.Errorf("unrecognized rule reference: %s", ref)
+	}
+
+	if handleErr != nil {
+		return handleErr
+	}
+
+	// 5. Update lockfile
+	lock.Rules = append(lock.Rules, ruleSource)
 	err = lock.Save(cursorDir)
 	if err != nil {
 		return fmt.Errorf("failed to save lockfile: %w", err)
@@ -785,4 +809,259 @@ func SyncLocalRules(cursorDir string) error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// ShareableRule represents a rule that can be shared with others
+// It omits personal data like local file paths
+type ShareableRule struct {
+	// The short "rule key" used in local .cursor/rules filenames
+	Key string `json:"key"`
+
+	// A short, machine-readable type: "built-in", "local-abs", "local-rel", "github-file", "github-dir"
+	SourceType SourceType `json:"sourceType"`
+
+	// The raw string that the user passed in (sanitized if necessary)
+	Reference string `json:"reference"`
+
+	// Category for built-in rules
+	Category string `json:"category,omitempty"`
+
+	// For Git sources, store explicit commit/tag/branch
+	// e.g. "commit=0609329", "branch=main", etc.
+	GitRef string `json:"gitRef,omitempty"`
+
+	// Flag to indicate if this rule can't be easily shared
+	Unshareable bool `json:"unshareable,omitempty"`
+
+	// Optional embedded .mdc content for local rules
+	Content string `json:"content,omitempty"`
+
+	// Name of the original file for embedded content
+	Filename string `json:"filename,omitempty"`
+}
+
+// ShareableLock represents the structure of the shareable lockfile
+type ShareableLock struct {
+	// Version of the shareable file format
+	FormatVersion int `json:"formatVersion"`
+
+	// Rules that can be shared
+	Rules []ShareableRule `json:"rules"`
+}
+
+// ShareRules creates a shareable file from the current lockfile
+// The shareable file excludes personal data like local paths
+func ShareRules(cursorDir string, shareFilePath string, embedContent bool) error {
+	lock, err := LoadLockFile(cursorDir)
+	if err != nil {
+		return fmt.Errorf("failed to load lockfile: %w", err)
+	}
+
+	shareable := ShareableLock{
+		FormatVersion: 1,
+		Rules:         []ShareableRule{},
+	}
+
+	for _, rule := range lock.Rules {
+		sr := ShareableRule{
+			Key:        rule.Key,
+			SourceType: rule.SourceType,
+			Reference:  rule.Reference,
+			Category:   rule.Category,
+			GitRef:     rule.GitRef,
+		}
+
+		// Handle different source types differently
+		switch rule.SourceType {
+		case SourceTypeLocalAbs:
+			// Mark absolute local paths as unshareable
+			sr.Unshareable = true
+			if embedContent && len(rule.LocalFiles) > 0 {
+				// Embed the content if requested
+				for _, localFile := range rule.LocalFiles {
+					content, err := os.ReadFile(filepath.Join(cursorDir, localFile))
+					if err == nil {
+						sr.Content = string(content)
+						sr.Filename = localFile
+						sr.Unshareable = false
+						break
+					}
+				}
+			}
+
+		case SourceTypeLocalRel:
+			// For relative paths, check if embedContent is true
+			if embedContent && len(rule.LocalFiles) > 0 {
+				// Embed the content if requested
+				for _, localFile := range rule.LocalFiles {
+					content, err := os.ReadFile(filepath.Join(cursorDir, localFile))
+					if err == nil {
+						sr.Content = string(content)
+						sr.Filename = localFile
+						break
+					}
+				}
+			} else {
+				// Just mark as potentially unshareable if not embedding
+				sr.Unshareable = true
+			}
+
+		case SourceTypeGitHubFile, SourceTypeGitHubDir:
+			// GitHub URLs are fully shareable, nothing special needed
+
+		case SourceTypeBuiltIn:
+			// Built-in rules are fully shareable, nothing special needed
+		}
+
+		shareable.Rules = append(shareable.Rules, sr)
+	}
+
+	// Create the shareable file
+	data, err := json.MarshalIndent(shareable, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to create shareable file: %w", err)
+	}
+
+	err = os.WriteFile(shareFilePath, data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write shareable file: %w", err)
+	}
+
+	return nil
+}
+
+// RestoreFromShared restores rules from a shareable file
+// It handles conflict resolution by asking the user what to do
+func RestoreFromShared(cursorDir, sharedFilePath string, autoResolve string) error {
+	// Read the shared file
+	data, err := os.ReadFile(sharedFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to read shared file: %w", err)
+	}
+
+	var shareable ShareableLock
+	if err := json.Unmarshal(data, &shareable); err != nil {
+		return fmt.Errorf("failed to parse shared file: %w", err)
+	}
+
+	// Validate format version
+	if shareable.FormatVersion != 1 {
+		return fmt.Errorf("unsupported shareable file format version: %d", shareable.FormatVersion)
+	}
+
+	// Load the current lockfile
+	lock, err := LoadLockFile(cursorDir)
+	if err != nil {
+		return fmt.Errorf("failed to load lockfile: %w", err)
+	}
+
+	// Process each rule in the shareable file
+	for _, sr := range shareable.Rules {
+		// Skip unshareable rules
+		if sr.Unshareable {
+			fmt.Printf("Skipping unshareable rule: %s\n", sr.Key)
+			continue
+		}
+
+		// Check if this rule already exists
+		existingIdx := -1
+		for i, rule := range lock.Rules {
+			if rule.Key == sr.Key {
+				existingIdx = i
+				break
+			}
+		}
+
+		// If rule exists, handle conflict
+		if existingIdx >= 0 {
+			// Determine what to do based on autoResolve
+			action := autoResolve
+			if action == "" {
+				// Ask user what to do
+				fmt.Printf("Rule '%s' already exists. [s]kip, [o]verwrite, [r]ename? ", sr.Key)
+				var input string
+				fmt.Scanln(&input)
+				input = strings.ToLower(input)
+				if input == "s" {
+					action = "skip"
+				} else if input == "o" {
+					action = "overwrite"
+				} else if input == "r" {
+					action = "rename"
+				} else {
+					fmt.Println("Invalid choice, skipping...")
+					action = "skip"
+				}
+			}
+
+			switch action {
+			case "skip":
+				fmt.Printf("Skipping rule: %s\n", sr.Key)
+				continue
+			case "overwrite":
+				// Remove the existing rule
+				if err := RemoveRule(cursorDir, sr.Key); err != nil {
+					return fmt.Errorf("failed to remove existing rule: %w", err)
+				}
+			case "rename":
+				// Generate a new key
+				newKey := sr.Key + "-2"
+				counter := 2
+				for containsRule(lock.Rules, newKey) {
+					counter++
+					newKey = fmt.Sprintf("%s-%d", sr.Key, counter)
+				}
+				sr.Key = newKey
+				fmt.Printf("Renamed to: %s\n", sr.Key)
+			}
+		}
+
+		// Process the rule based on source type and content
+		if sr.Content != "" && sr.Filename != "" {
+			// If it has embedded content, create a local file
+			localFilePath := filepath.Join(cursorDir, sr.Filename)
+			if err := os.WriteFile(localFilePath, []byte(sr.Content), 0644); err != nil {
+				return fmt.Errorf("failed to write embedded rule content: %w", err)
+			}
+
+			// Add the rule as a local reference
+			source := RuleSource{
+				Key:        sr.Key,
+				SourceType: SourceTypeLocalRel,
+				Reference:  sr.Filename,
+				LocalFiles: []string{sr.Filename},
+			}
+
+			// Add to lockfile
+			lock.Rules = append(lock.Rules, source)
+			fmt.Printf("Added rule from embedded content: %s\n", sr.Key)
+		} else {
+			// Handle based on source type
+			switch sr.SourceType {
+			case SourceTypeGitHubFile, SourceTypeGitHubDir:
+				// Add directly from GitHub reference
+				if err := AddRuleByReference(cursorDir, sr.Reference); err != nil {
+					return fmt.Errorf("failed to add rule from GitHub: %w", err)
+				}
+				fmt.Printf("Added rule from GitHub: %s\n", sr.Key)
+
+			case SourceTypeBuiltIn:
+				// Add from built-in templates
+				if err := AddRule(cursorDir, sr.Category, sr.Key); err != nil {
+					return fmt.Errorf("failed to add built-in rule: %w", err)
+				}
+				fmt.Printf("Added built-in rule: %s\n", sr.Key)
+
+			default:
+				fmt.Printf("Cannot restore rule with source type %s: %s\n", sr.SourceType, sr.Key)
+			}
+		}
+	}
+
+	// Save the updated lockfile
+	if err := lock.Save(cursorDir); err != nil {
+		return fmt.Errorf("failed to save lockfile: %w", err)
+	}
+
+	return nil
 }
