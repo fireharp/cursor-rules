@@ -1,321 +1,172 @@
+## TS: 2025-03-18 22:40:24 CET
+
+## PROBLEM: Need to set up Cursor Rules for this project
+
+WHAT WAS DONE:
+
+- Initialized Cursor Rules using `go-claude/bin/cursor-rules setup` command
+- Created .cursor/rules directory with appropriate templates:
+  - init.mdc - Contains initialization instructions
+  - setup.mdc - Project setup template
+  - general.mdc - General purpose rules
+
+---
+
+MEMO:
+
+- Cursor Rules are now ready to use in this project
+- Templates have been adapted to the detected project type
+- Rules will help improve AI assistance for this codebase
+
+## TS: 2025-03-18 22:15:19 CET
+
+## PROBLEM: Need structured testing approach for the MVP implementation
+
+WHAT WAS DONE:
+
+- Created testing instructions for validating the MVP implementation
+- Provided detailed manual testing steps for both npm/React and Python projects
+- Documented expected outcomes for each project type
+- Added proper cleanup instructions after testing
+
+---
+
+MEMO:
+
+- To manually test the MVP, follow these steps:
+  1. Build the binary: `go build -o bin/cursor-rules ./cmd/cursor-rules`
+  2. Create test directories: `mkdir -p bin/test/{npm-project,python-project}`
+  3. Create test package.json: `echo '{ "name": "test", "dependencies": { "react": "18.2.0" } }' > bin/test/npm-project/package.json`
+  4. Create test setup.py: `echo 'from setuptools import setup; setup(name="test")' > bin/test/python-project/setup.py`
+  5. Test npm init: `cd bin/test/npm-project && ../../cursor-rules --init`
+  6. Test npm setup: `cd bin/test/npm-project && ../../cursor-rules --setup`
+  7. Test Python init: `cd bin/test/python-project && ../../cursor-rules --init`
+  8. Test Python setup: `cd bin/test/python-project && ../../cursor-rules --setup`
+  9. Cleanup after testing: `rm -rf bin/test`
+- Expected outcomes:
+  - npm project: init.mdc, setup.mdc, react.mdc, general.mdc
+  - Python project: init.mdc, setup.mdc, python.mdc, general.mdc
+
+## TS: 2025-03-18 22:18:38 CET
+
+## PROBLEM: Need to simplify command syntax and add shortcuts for better user experience
+
+WHAT WAS DONE:
+
+- Updated main.go to support both flag-style and command-style syntax:
+  - `cursor-rules --init` → can now also use `cursor-rules init`
+  - `cursor-rules --setup` → can now also use `cursor-rules setup`
+- Added `CR_SETUP` as an alias for `CursorRules.setup` for use in Cursor editor
+- Updated templates to document these new aliases
+- Modified code to support this more intuitive command structure
+
+---
+
+MEMO:
+
+- The tool can now be used with simpler commands:
+  1. `cursor-rules init` - Creates the .cursor/rules directory with just the init template
+  2. `cursor-rules setup` - Detects project type and sets up appropriate rules
+- Inside Cursor editor, users can now use either:
+  - `CursorRules.setup` (original command)
+  - `CR_SETUP` (new shorter alias)
+- Both the flag-style (`--init`, `--setup`) and command-style syntax work
+
+## TS: 2025-03-18 22:26:34 CET
+
+## PROBLEM: Needed to test cursor-rules functionality with example projects
+
+WHAT WAS DONE:
+
+- Built the cursor-rules binary using `go build -o bin/cursor-rules ./cmd/cursor-rules`
+- Tested initialization in example npm project with `cursor-rules init`
+- Verified creation of .cursor/rules directory with init.mdc file
+- Tested setup in example npm project with `cursor-rules setup`
+- Confirmed detection of npm/Node.js project with React dependency
+- Verified creation of setup.mdc, react.mdc, and general.mdc files
+- Tested initialization in example Python project with `cursor-rules init`
+- Tested setup in example Python project with `cursor-rules setup`
+- Confirmed detection of Python project
+- Verified creation of setup.mdc, python.mdc, and general.mdc files
+
+---
+
+MEMO:
+
+- The cursor-rules tool successfully detects project types and sets up appropriate rules
+- Both flag-style and command-style syntax work as expected
+- Each project type gets appropriate rule templates based on detected dependencies
+- The testing confirmed that both npm/React and Python projects are properly supported
+
 # Project Progress
 
-## TS: 2025-03-09 20:43:57 CET
+## TS: 2025-03-22 16:19:11 CET
 
-## PROBLEM: Need a CLI tool for Cursor editor rules initialization with template support
+## PROBLEM: Need a more robust rule creation system with specialized components for planning, writing, critiquing, and finalizing
 
-WHAT WAS DONE:
+WHAT WAS DONE: Implemented a multi-agent architecture using Mastra's agent and workflow system:
 
-- Created a CLI tool for initializing Cursor editor rules
-- Implemented multiple template categories (languages, frameworks)
-- Added custom template creation functionality
-- Built interactive template selection
-- Established project structure with main application entry point, templates package, and configuration
-- Set up documentation in README.md
-
----
-
-MEMO:
-
-- Tool creates .cursor/rules directory
-- Provides pre-defined templates selection
-- Supports custom template creation
-- Run with: `go run cmd/cursor-rules/main.go`
-- Or build with: `mkdir -p bin && go build -o bin/cursor-rules ./cmd/cursor-rules`
-
-## TS: 2025-03-09 21:10:51 CET
-
-## PROBLEM: Need to update Template structure to support multiple globs and always-apply functionality
-
-WHAT WAS DONE:
-
-- Updated Template structure to include Globs array and AlwaysApply flag
-- Enhanced template parsing logic for backward compatibility and new fields
-- Improved template creation to support the new format
-- Updated all example templates with new format including preamble text
-- Created comprehensive taskfile.yml with build, test, coverage, and distribution options
-- Added test cases for multiple globs parsing
+1. Created four specialized agents:
+   - Rule Planner: Analyzes examples and creates a detailed plan using GPT-4o-mini
+   - Rule Writer: Implements the plan to write the actual rule
+   - Rule Critic: Evaluates the rule against the request, providing feedback
+   - Rule Finalizer: Incorporates feedback to produce the polished final rule
+2. Developed a workflow that orchestrates these agents in sequence
+3. Updated the CLI to integrate with the new workflow
 
 ---
 
-MEMO:
+MEMO: This pipeline approach significantly improves rule quality through separation of concerns. Each agent specializes in one aspect of rule creation, leading to more thoughtful planning, consistent implementation, thorough evaluation, and higher-quality output. The system leverages example analysis for better categorization and style matching.
 
-- Templates now use globs (array) instead of glob (string)
-- AlwaysApply flag controls whether rules always apply regardless of file type
-- Format now includes frontmatter (description, globs, alwaysApply) followed by preamble and main content
-- Enhanced development workflow with watch mode
+## TS: 2025-03-22 16:21:01 CET
 
-## TS: 2025-03-09 21:16:23 CET
+## PROBLEM: Need persistent memory in the rule creation system to maintain context across sessions
 
-## PROBLEM: Need automated release process for the cursor-rules CLI tool
+WHAT WAS DONE: Integrated Mastra's memory system into the rule creation workflow:
 
-WHAT WAS DONE:
-
-- Configured GitHub Actions workflow for GoReleaser in .github/workflows/release.yml
-- Set up automatic building and releasing when new tags are pushed
-- Ensured proper Go version specification (1.21)
-- Added tests execution as part of the release process
+1. Added Memory configuration to the Mastra instance with:
+   - Message history (lastMessages: 40)
+   - Semantic search (topK: 5, messageRange: 2)
+   - Working memory for persistent information
+   - Thread title generation
+2. Updated CLI to use resource and thread IDs for memory context
+3. Added @mastra/memory dependency to package.json
 
 ---
 
-MEMO:
+MEMO: The memory system enables the agents to remember previous conversations and maintain context between sessions. This improves the quality of rules by allowing the system to learn from past interactions and reference previous work. Working memory helps maintain important context even with limited message history.
 
-- Release process triggers on tags starting with 'v' (e.g., v0.1.0)
-- GoReleaser configuration already existed in .goreleaser.yaml
-- To create a new release: `git tag v0.1.0 && git push origin v0.1.0`
-- Releases will be available on the GitHub Releases page
+## TS: 2025-03-22 16:26:27 CET
 
-## TS: 2025-03-09 21:19:45 CET
-
-## PROBLEM: GoReleaser configuration has deprecation warnings that need to be fixed
+## PROBLEM: Build is failing due to incorrect imports and TypeScript errors
 
 WHAT WAS DONE:
 
-- Fixed deprecated fields in `.goreleaser.yaml` configuration
-- Simplified archive configuration to remove format_overrides and format fields
-- Specified files to include in archives (LICENSE, README, CHANGELOG)
-- Verified configuration with `goreleaser check`
+1. Attempted to fix tool imports using @mastra/core/tools
+2. Created multi-agent architecture files (orchestrator.ts)
+3. Identified multiple TypeScript errors:
+   - Wrong imports: 'agent' instead of 'Agent', 'toolWithDescription' instead of 'createTool'
+   - Missing type declarations for parameters
+   - Incorrect API usage for agent methods
 
 ---
 
-MEMO:
+MEMO: Need to update all agent files to use the correct Mastra API. Each agent should use the Agent class from @mastra/core with proper type definitions. The tools need to be updated to use createTool instead of toolWithDescription. Additional types need to be defined for all function parameters.
 
-- GoReleaser archives configuration now uses a simplified approach
-- Explicit file patterns included in archives
-- No more deprecation warnings when checking configuration
-- Workflow files correctly configured for future releases
+## TS: 2025-03-22 17:04:41 CET
 
-## TS: 2025-03-09 21:22:54 CET
-
-## PROBLEM: Need to make cursor-rules available via Homebrew
+## PROBLEM: Unclear where rules are saved in the Mastra-based rule creation system
 
 WHAT WAS DONE:
 
-- Added Homebrew tap configuration to GoReleaser
-- Added --version flag to the CLI tool for proper Homebrew formula testing
-- Configured brews section in .goreleaser.yaml with repository details
-- Set up proper license and documentation for Homebrew distribution
+- Analyzed the code to determine where and how rules are stored
+- Identified that rules are saved to the local file system, not to Mastra docs or examples
+- Found that rules are saved to a "generated-rules" directory in the project root
+- Confirmed that the saving happens in src/index.ts, not within the Mastra system itself
 
 ---
 
-MEMO:
-
-- A separate "homebrew-tap" repository needs to be created in GitHub
-- Homebrew users can install using: `brew install fireharp/tap/cursor-rules`
-- GoReleaser will automatically update the Homebrew formula with each release
-- Make sure the GITHUB_TOKEN has correct permissions for the tap repository
-
-## TS: 2025-03-09 21:30:05 CET
-
-## PROBLEM: Need to create the first official release of cursor-rules
-
-WHAT WAS DONE:
-
-- Set up homebrew-tap repository with proper structure
-- Created placeholder formula in homebrew-tap repository
-- Tagged and pushed v0.1.0 to trigger the release workflow
-- Verified release workflow execution
-
----
-
-MEMO:
-
-- First official release tagged as v0.1.0
-- Release workflow will build binaries for all supported platforms
-- The Homebrew formula will be automatically updated
-- Once the workflow completes, users can install with: `brew install fireharp/tap/cursor-rules`
-- Need to verify the release artifacts and Homebrew formula after workflow completion
-
-## TS: 2025-03-09 21:36:27 CET
-
-## PROBLEM: GitHub Actions workflows failing due to directory structure mismatch
-
-WHAT WAS DONE:
-
-- Fixed GitHub Actions workflow files by removing `cd go-claude` commands
-- Removed workdir parameter from GoReleaser actions
-- Created and pushed a new tag (v0.1.1) to trigger the fixed workflow
-- Pushed workflow fixes to the main branch
-
----
-
-MEMO:
-
-- Local repository structure had files in go-claude directory
-- GitHub repository structure has files in the root
-- GitHub Actions needs to run commands from the repository root
-- New release v0.1.1 should build successfully with the fixed workflows
-
-## TS: 2025-03-09 21:45:12 CET
-
-## PROBLEM: GitHub Actions workflow failing due to GoReleaser version incompatibility
-
-WHAT WAS DONE:
-
-- Changed GoReleaser configuration to use version 1 instead of version 2
-- Updated GitHub Actions workflow to use goreleaser-action@v6
-- Changed GoReleaser version specification to use "~> v1"
-- Updated Go version in workflows to match go.mod (1.23.4)
-- Created a new tag (v0.1.2) to trigger the updated workflow
-
----
-
-MEMO:
-
-- GoReleaser in GitHub Actions was using a version that doesn't support config version 2
-- Explicit Go version ensures consistent builds matching development environment
-- Using v1.x.x of GoReleaser which is compatible with our configuration
-- Upgraded GitHub Actions components to latest versions
-- Maintained the same directory structure fixes from previous attempts
-
-## TS: 2025-03-09 21:52:48 CET
-
-## PROBLEM: GoReleaser unable to update Homebrew tap due to permission issues
-
-WHAT WAS DONE:
-
-- Created a Personal Access Token (PAT) with repository access permissions
-- Added the token as a repository secret named HOMEBREW_TAP_TOKEN
-- Updated the GitHub Actions workflow to use the PAT instead of the default GITHUB_TOKEN
-- Recreated and pushed the v0.1.2 tag to trigger the updated workflow
-
----
-
-MEMO:
-
-- Default GITHUB_TOKEN only has permissions for the repository where the workflow runs
-- A Personal Access Token (PAT) is required for cross-repository operations
-- The PAT needs repo permissions to push to the homebrew-tap repository
-- Used same version number (v0.1.2) but with fixed permissions
-- The Homebrew formula should now be correctly updated in the tap repository
-
-## TS: 2025-03-09 23:58:12 CET
-
-## PROBLEM: Homebrew tap formula not properly updated by GoReleaser
-
-WHAT WAS DONE:
-
-- Verified that the Homebrew tap repository (fireharp/homebrew-tap) exists
-- Confirmed that the formula in the tap was still a placeholder
-- Manually updated the formula in the tap repository with the one generated by local GoReleaser
-- Confirmed that the formula is recognized by Homebrew but installation fails
-- Identified the issue: formula references GitHub release files that don't exist
-
----
-
-MEMO:
-
-- The GitHub Actions workflow successfully builds binaries but fails to update the Homebrew tap
-- Even with proper PAT token permissions, the workflow is not updating the formula correctly
-- Manual formula update is recognized by Homebrew but installation fails due to missing release files
-- Need to either fix the GitHub Actions workflow or manually create a GitHub release with binary assets
-- The long-term solution is to ensure the GitHub Actions workflow can properly update the tap formula
-
-## TS: 2025-03-10 00:05:23 CET
-
-## PROBLEM: Need to trigger GitHub Actions with updated PAT to fix Homebrew tap
-
-WHAT WAS DONE:
-
-- Updated the Personal Access Token (PAT) with necessary permissions
-- Created and pushed a new tag (v0.1.3) to trigger the release workflow
-- Verified that the tag was successfully pushed to the repository
-
----
-
-MEMO:
-
-- New PAT should have sufficient permissions to update the homebrew-tap repository
-- Workflow will build binaries, create GitHub release, and update the formula
-- Once the workflow completes, the formula should be properly updated in the tap
-- Users should be able to install with `brew install fireharp/tap/cursor-rules`
-- This completes the setup for automated releases with Homebrew distribution support
-
-## TS: 2025-03-10 00:15:31 CET
-
-## PROBLEM: Inconsistency between local GoReleaser v2 and GitHub Actions GoReleaser v1
-
-WHAT WAS DONE:
-
-- Upgraded configuration from version 1 to version 2 format
-- Updated GitHub Actions workflows to use GoReleaser v2 instead of v1
-- Fixed field names to match GoReleaser v2 schema (e.g., directory instead of folder)
-- Verified configuration with local goreleaser check
-- Created and pushed a new tag (v0.1.3) to trigger the updated workflow
-
----
-
-MEMO:
-
-- Local GoReleaser installation is v2.7.0, which requires version 2 configuration
-- Updated GitHub Actions workflows to use "~> v2" to match local development environment
-- Properly formatted Homebrew tap configuration for v2 schema
-- Version 2 configuration is more robust and better documented
-- This aligns development and CI environments to use the same GoReleaser version
-
-## TS: 2025-03-10 00:25:10 CET
-
-## PROBLEM: Need standardized documentation for the release process
-
-WHAT WAS DONE:
-
-- Created a comprehensive RELEASE.md document detailing the complete release process
-- Updated the VERSION in taskfile.yml to match the latest tag (v0.1.3)
-- Documented version management across different files and systems
-- Included troubleshooting guidance for common release issues
-- Added step-by-step instructions for both local testing and official releases
-
----
-
-MEMO:
-
-- Taskfile.yml version was out of sync with git tags (fixed to 0.1.3)
-- The complete release process is now documented in one place
-- RELEASE.md covers version management, pre-release checks, local testing, and release steps
-- Standardized process should prevent mistakes in future releases
-- Document includes Homebrew deployment verification steps
-
-## TS: 2025-03-18 22:10:01 CET
-
-## PROBLEM: Need to implement a minimal viable product (MVP) for CursorRules with initialization and setup features
-
-WHAT WAS DONE:
-
-- Created two new template files: init.mdc and setup.mdc
-- Added '--init' flag to initialize with just the init template
-- Added '--setup' flag to detect project type and set up appropriate rules
-- Implemented project type detection for npm/React and Python projects
-- Created example project structures for testing in examples/ directory
-- Made initialization process more streamlined with specific commands
-
----
-
-MEMO:
-
-- MVP focuses on two main commands: init and setup
-- CursorRules.init creates the .cursor/rules directory and adds only the init template
-- CursorRules.setup detects project type and adds appropriate templates
-- Project detection checks for package.json, setup.py, requirements.txt, etc.
-- Testing can be done with example projects in go-claude/examples/
-
-## TS: 2025-03-22 14:47:26 CET
-
-## PROBLEM: Deprecated io/ioutil package usage in cursor-rules CLI tool
-
-WHAT WAS DONE:
-
-- Replaced deprecated io/ioutil import with os package
-- Replaced ioutil.ReadFile with os.ReadFile
-- Ensured code is compliant with Go 1.16+ recommendations
-
----
-
-MEMO:
-
-- The io/ioutil package was deprecated in Go 1.16
-- Its functionality is now provided by package io or package os
-- For file reading/writing, os.ReadFile and os.WriteFile should be used instead of ioutil.ReadFile and ioutil.WriteFile
-- For other I/O operations, equivalent functions are available in the io and os packages
+MEMO: The rule creation workflow uses Mastra (plan, write, critique, finalize steps), but the actual file saving happens in the host application. Rules are organized by category paths in the generated-rules directory (e.g., "generated-rules/general/rule-name.mdc"). The Mastra workflow manages the creation process, while file persistence is handled by the host application.
 
 ## TS: 2025-03-22 19:27:09 CET
 
@@ -330,182 +181,101 @@ WHAT WAS DONE:
 
 ---
 
-MEMO:
-The package manager-style API will provide npm-like functionality (add, remove, upgrade, list) while tracking installed rules in a lockfile. This approach allows for more granular management of rules and creates a foundation for future features like versioning and remote rule repositories.
+MEMO: The package manager-style API will provide npm-like functionality (add, remove, upgrade, list) while tracking installed rules in a lockfile. This approach allows for more granular management of rules and creates a foundation for future features like versioning and remote rule repositories.
 
-## TS: 2025-03-22 19:36:33 CET
+## TS: 2025-03-23 00:11:27 CET
 
-## PROBLEM: Need to address code review feedback for the package manager-style API implementation
-
-WHAT WAS DONE:
-
-- Fixed a critical bug where template modifications weren't updating the global map
-- Added comprehensive test suite for the manager package with 7 test functions
-- Verified proper operation of LockFile operations and rule management functions
-- Updated README.md with documentation and examples for the new package manager commands
-- Ensured consistent error handling throughout the codebase
-- Made minor improvements to code readability and maintainability
-
----
-
-MEMO:
-The package manager API is now fully functional with proper test coverage. The LockFile approach works well for tracking installed rules, and all core functions (add, remove, upgrade, list) have been tested for both normal operation and edge cases. The main bug found in the review (template modifications not being stored in the global map) has been fixed, ensuring that template content changes are correctly persisted.
-
-## TS: 2025-03-22 20:30:00 CET
-
-## PROBLEM: Need to implement package manager-style API for cursor rules
+## PROBLEM: URL detection in the add command not working correctly
 
 WHAT WAS DONE:
 
-- Created pkg/manager package with core rule management functions
-- Implemented LockFile structure for tracking installed rules
-- Added AddRule, RemoveRule, UpgradeRule, and ListInstalledRules functions
-- Updated main.go to support new subcommands (add, remove, upgrade, list)
-- Refactored existing init and setup commands to use the manager package
-- Maintained backward compatibility with flag-style syntax
-- Added comprehensive help information via showHelp() function
+- Fixed the `add` command to detect URLs and file paths automatically
+- Added smart routing to use `AddRuleByReference` when a URL or file path is detected
+- Maintained support for traditional category-based rule addition for other cases
+- Tested with GitHub URLs to ensure proper detection and handling
+- Improved user experience by eliminating the need to use different commands for different reference types
 
 ---
 
-MEMO:
-The package manager implementation is now functional and provides npm-like commands for managing cursor rules. Rules are tracked in a cursor-rules.lock file in the .cursor/rules directory. The existing functionality is preserved while adding new capabilities. Next steps would be to add tests and update documentation.
+MEMO: The enhancement makes the `cursor-rules add` command smarter by automatically detecting if the argument is a URL, file path, or rule key. URL and file paths are now routed to `AddRuleByReference` while traditional rule keys still use category-based `AddRule`. This means users can now use `cursor-rules add https://github.com/...` directly without needing to remember to use the `add-ref` command, making the CLI more intuitive and user-friendly.
 
-## TS: 2025-03-22 22:23:15 CET
+## TS: 2025-03-23 00:16:10 CET
 
-## PROBLEM: Need to extend cursor-rules manager to support multiple reference types (local/GitHub)
+## PROBLEM: Command API needed simplification and standardization on reference-based rule addition
 
 WHAT WAS DONE:
 
-- Created a detailed task plan for enhancing the lockfile structure to support various reference types
-- Designed an improved RuleSource structure that can track source type, reference path, git ref, etc.
-- Outlined implementation approach for handling local files, GitHub single files, and GitHub directories
-- Identified required CLI changes to support the new reference types
-- Planned backward compatibility to ensure existing functionality continues to work
+- Removed the category-based `add` command in favor of reference-based rule addition
+- Made `add` and `add-ref` both use `AddRuleByReference`, with `add-ref` becoming an alias
+- Updated all core functions (init, setup) to use the reference-based approach
+- Simplified the help text to focus on file/URL references for better usability
+- Updated documentation to reflect the simplified command interface
+- Made sure all tests still pass with the new implementation
 
 ---
 
-MEMO:
-This enhancement will transform cursor-rules into a true package manager, similar to npm or pip, allowing users to reference rules from various sources (local files, GitHub URLs with commits/tags/branches, directories) while maintaining reproducibility and upgrade paths. The RuleSource structure will provide the metadata needed to properly track where each rule came from and how to upgrade it.
+MEMO: The command interface is now more consistent and simpler to use. Instead of requiring users to know which category a rule belongs to, all rules are now simply added by referencing their source - either a local file or a GitHub URL. This creates a more intuitive workflow that matches modern package managers. The `add-ref` command is retained as an alias for `add` to maintain backward compatibility with existing scripts.
 
-## TS: 2025-03-22 22:29:12 CET
+## TS: 2025-03-23 00:48:07 CET
 
-## PROBLEM: Enhanced version of the rule reference management implementation completed
+## PROBLEM: README.md needed restructuring to improve user experience
 
 WHAT WAS DONE:
 
-- Completed the implementation of enhanced lockfile structure for multiple reference types
-- Added tests to verify correct functionality of AddRuleByReference, UpgradeRule, and RemoveRule
-- Updated documentation in README.md with comprehensive examples
-- Maintained backward compatibility with existing functionality
-- Completed all marked tasks in the task-reference-enhancement.md file
+- Reorganized README.md structure to prioritize user-centric information
+- Added "Quick Start" section at the top with essential commands
+- Moved installation and development sections to the bottom
+- Simplified command reference to focus on the most common use cases
+- Updated examples to reflect the new reference-based command interface
+- Removed redundant "Package Manager Commands" section for clarity
+- Created more logical flow from quick start to usage to examples
 
 ---
 
 MEMO:
-The cursor-rules tool now functions as a flexible, package manager-style system that can handle multiple types of references, including local files and GitHub URLs. It maintains backward compatibility with the existing built-in template system while providing powerful new features. The implementation includes proper error handling, type safety, and comprehensive testing. Future enhancements could include completing the GitHub directory support and implementing commit resolution for branch references.
+The updated README now follows a more user-focused structure, presenting the most immediately useful information first. New users can quickly get started with the top Quick Start section, then learn more about usage patterns, while development and installation details are appropriately placed at the bottom for those who need them. This organization better aligns with the simplified command interface that now relies entirely on reference-based rule addition.
 
-## TS: 2025-03-22 22:44:27 CET
+## TS: 2025-03-23 21:19:24 CET
 
-## PROBLEM: Need to add support for storing lockfile in project root
+## PROBLEM: Enhance the "upgrade" command to properly track and update GitHub-based rules
 
 WHAT WAS DONE:
 
-- Implemented a configurable lockfile location system that allows storing cursor-rules.lock in project root
-- Added functions to check both possible lockfile locations and migrate between them
-- Created SetLockFileLocation function to handle setting and migration of lockfile
-- Added set-lock-location CLI command with --root flag to control lockfile location
-- Updated documentation in README.md to explain the feature
-- Added comprehensive migration support to automatically move lockfiles when location changes
-- Maintained backward compatibility by checking both locations when loading
+- Added ContentSHA256 field to the RuleSource struct to track local modifications
+- Enhanced handleGitHubBlob to store resolved commit hash and content hash
+- Implemented a smarter UpgradeRule function that:
+  - Detects local modifications to rule files
+  - Checks if the latest commit on the branch has changed
+  - Prompts the user before overwriting local changes
+  - Displays commit hash changes during upgrades
+- Added utility functions for Git commit handling
 
 ---
 
-MEMO:
-The lockfile location feature provides flexibility for users who prefer to have the cursor-rules.lock file visible in their project root for version control or easier access. The implementation ensures that existing functionality continues to work, and users can easily switch between locations with a simple command. Both locations are checked when loading, ensuring a smooth transition when the location is changed.
+MEMO: The upgrade command now provides a true package-manager style experience:
 
-## TS: 2025-03-22 22:50:09 CET
+- Rules from branches (like main) can be updated to the latest commit
+- Rules pinned to specific commits remain pinned unless explicitly upgraded
+- Local modifications are detected and protected
+- The tool shows the exact commit hash changes during upgrades
 
-## PROBLEM: Need to sync and track local rules that exist in the filesystem but not in the lockfile
+## TS: 2025-03-23 22:46:01 CET
+
+## PROBLEM: Need to implement "share rules" and "restore from shared" functionality
 
 WHAT WAS DONE:
 
-- Implemented SyncLocalRules function to scan the .cursor/rules directory for all .mdc files
-- Added automatic rule syncing to the list command to ensure the lockfile reflects all rules
-- Enhanced file detection to handle both top-level rule files and rules in subdirectories
-- Fixed path handling to get correct relative paths for locally installed rules
-- Added display of newly discovered local rules for better user visibility
-- Ensured compatibility with both directly added rules and GitHub-sourced rules
-
----
-
-MEMO:
-The sync functionality automatically detects and registers any .mdc files that exist in the rules directory but aren't tracked in the lockfile. This fixes the issue where rules physically present in the filesystem weren't showing up in the `list` command output. This ensures greater visibility of all available rules and provides a more accurate representation of the cursor rules state, bringing the rules directory and lockfile into sync.
-
-## TS: 2025-03-23 00:28:09 CET
-
-## PROBLEM: Need to release version 0.1.4 of cursor-rules CLI tool
-
-WHAT WAS DONE:
-
-- Executed complete release process
-- Updated version in taskfile.yml from 0.1.3 to 0.1.4
-- Updated CHANGELOG.md with v0.1.4 section
-- Verified code with go fmt, go vet, and tests
-- Validated GoReleaser configuration
-- Created and pushed git tag v0.1.4 to trigger release workflow
-- Set up automatic Homebrew formula update
+- Implemented ShareRules function in the manager package to export rules to a JSON file
+- Created ShareableLock and ShareableRule structs to define the sharing format
+- Added share command to the CLI with options for embedding content
+- Implemented RestoreFromShared function to import rules from a shared JSON file
+- Added restore command to the CLI with conflict resolution options
+- Fixed compatibility between share and restore by ensuring they use the same format
+- Added support for embedded content in shared rules
+- Tested full sharing and restoring workflow across different directories
 
 ---
 
 MEMO:
 
-- Release workflow builds binaries for Linux, macOS, and Windows
-- Release assets automatically uploaded to GitHub Releases
-- Homebrew formula automatically updated in fireharp/homebrew-tap
-- Future releases should follow same process: update version, update changelog, commit, tag, push
-
-## TS: 2025-03-23 00:49:29 CET
-
-## PROBLEM: Need to release version 0.1.5 of cursor-rules CLI tool
-
-WHAT WAS DONE:
-
-- Updated version in taskfile.yml from 0.1.4 to 0.1.5
-- Updated CHANGELOG.md with detailed v0.1.5 section
-- Executed pre-release checks (go fmt, go vet, tests)
-- Verified GoReleaser configuration
-- Created and pushed git tag v0.1.5 to trigger GitHub Actions release workflow
-
----
-
-MEMO:
-
-- Release workflow will build binaries for all supported platforms
-- GitHub Actions will automatically update the Homebrew formula in fireharp/homebrew-tap
-- Users can update with: `brew update && brew upgrade cursor-rules`
-- Release includes several enhancements as documented in CHANGELOG.md
-
-## TS: 2023-06-02 16:23:45 CEST
-
----
-
-## PROBLEM: Need to implement sharing and restoring Cursor rules
-
-WHAT WAS DONE:
-
-- Implemented ShareRules feature in manager.go that creates a shareable file from installed rules
-- Added RestoreFromShared function that can restore rules from a shareable file
-- Added support for conflict resolution with skip, overwrite, and rename options
-- Created ShareableLock and ShareableRule structures for storing shareable data
-- Modified manager_test.go to test the new functionality
-- Added share and restore commands to the main CLI
-- Made key functions mockable for better testing
-
----
-
-MEMO:
-
-- The shareable format strips out private local paths to maintain privacy
-- When restoring rules, users can choose to skip, overwrite, or rename conflicting rules
-- The implementation prioritizes security and doesn't allow restoring unshareable rules
-- Embedded rule content allows sharing rules without requiring access to the original source
+The share and restore functionality enables easy transfer of rules between projects or users. The implemented JSON format includes rule metadata and can optionally embed the actual rule content. When restoring shared rules, users can choose how to handle conflicts (skip/rename/overwrite) using the --auto-resolve flag. This feature is particularly useful for team collaboration and for maintaining consistent rule sets across multiple projects.

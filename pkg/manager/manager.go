@@ -1109,6 +1109,7 @@ func ShareRules(cursorDir string, shareFilePath string, embedContent bool) error
 }
 
 // Shareable represents the structure of a shareable rules file
+// This is being kept for backward compatibility but is no longer used
 type Shareable struct {
 	GitHub      []string            `json:"github"`
 	BuiltIn     map[string][]string `json:"builtIn"`
@@ -1128,7 +1129,7 @@ func findAvailableKey(baseKey string, existingRules map[string]bool) string {
 }
 
 // RestoreFromShared restores rules from a shareable file
-// autoResolve specifies how to handle conflicts: "skip" or "rename"
+// autoResolve specifies how to handle conflicts: "skip", "overwrite", or "rename"
 func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 	// Load the rules to restore
 	shareData, err := os.ReadFile(sharePath)
@@ -1136,9 +1137,15 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 		return fmt.Errorf("failed to read shareable file: %v", err)
 	}
 
-	var s Shareable
-	if err := json.Unmarshal(shareData, &s); err != nil {
-		return fmt.Errorf("failed to parse shareable file: %v", err)
+	// Unmarshal into ShareableLock format
+	var shareable ShareableLock
+	if err := json.Unmarshal(shareData, &shareable); err != nil {
+		return fmt.Errorf("failed to parse shareable file: %w", err)
+	}
+
+	// Validate format version
+	if shareable.FormatVersion != 1 {
+		return fmt.Errorf("unsupported shareable file format version: %d", shareable.FormatVersion)
 	}
 
 	// Load existing lockfile
@@ -1148,7 +1155,7 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 		if os.IsNotExist(err) {
 			lock = &LockFile{Rules: []RuleSource{}}
 		} else {
-			return fmt.Errorf("failed to load lockfile: %v", err)
+			return fmt.Errorf("failed to load lockfile: %w", err)
 		}
 	}
 
@@ -1158,135 +1165,129 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 		existingRules[rule.Key] = true
 	}
 
-	// Process GitHub rules
-	for _, ref := range s.GitHub {
-		key := generateRuleKey(ref)
-		if _, exists := existingRules[key]; exists {
-			if autoResolve == "skip" {
-				fmt.Printf("Skipping rule: %s\n", key)
-				continue
-			} else if autoResolve == "rename" {
-				newKey := findAvailableKey(key, existingRules)
-				fmt.Printf("Renaming rule: %s -> %s\n", key, newKey)
-				// Create a new ref with the new key and add it
-				if err := AddRuleByReferenceFn(cursorDir, ref); err != nil {
-					return fmt.Errorf("failed to add renamed GitHub rule: %v", err)
+	// Process each rule in the shareable file
+	for _, sr := range shareable.Rules {
+		// Skip unshareable rules
+		if sr.Unshareable {
+			fmt.Printf("Skipping unshareable rule: %s\n", sr.Key)
+			continue
+		}
+
+		// Check if this rule already exists
+		key := sr.Key
+		if existingRules[key] {
+			// Determine what to do based on autoResolve
+			action := autoResolve
+			if action == "" {
+				// Ask user what to do
+				fmt.Printf("Rule '%s' already exists. [s]kip, [o]verwrite, [r]ename? ", sr.Key)
+				var input string
+				fmt.Scanln(&input)
+				input = strings.ToLower(input)
+				if input == "s" {
+					action = "skip"
+				} else if input == "o" {
+					action = "overwrite"
+				} else if input == "r" {
+					action = "rename"
+				} else {
+					fmt.Println("Invalid choice, skipping...")
+					action = "skip"
 				}
 			}
-		} else {
-			// No conflict, add as normal
-			if err := AddRuleByReferenceFn(cursorDir, ref); err != nil {
-				return fmt.Errorf("failed to add GitHub rule: %v", err)
+
+			switch action {
+			case "skip":
+				fmt.Printf("Skipping rule: %s\n", sr.Key)
+				continue
+			case "overwrite":
+				// Remove the existing rule
+				if err := RemoveRule(cursorDir, sr.Key); err != nil {
+					return fmt.Errorf("failed to remove existing rule: %w", err)
+				}
+			case "rename":
+				// Generate a new key that doesn't conflict
+				key = findAvailableKey(sr.Key, existingRules)
+				fmt.Printf("Renamed to: %s\n", key)
 			}
 		}
-	}
 
-	// Process built-in rules
-	for category, rules := range s.BuiltIn {
-		for _, ruleKey := range rules {
-			if _, exists := existingRules[ruleKey]; exists {
-				if autoResolve == "skip" {
-					fmt.Printf("Skipping rule: %s\n", ruleKey)
-					continue
-				} else if autoResolve == "rename" {
-					newKey := findAvailableKey(ruleKey, existingRules)
-					fmt.Printf("Renaming rule: %s -> %s\n", ruleKey, newKey)
-					// Use the new key for the rule
-					if err := AddRuleFn(cursorDir, category, newKey); err != nil {
-						return fmt.Errorf("failed to add renamed built-in rule: %v", err)
+		// Process the rule based on its content and source type
+		if sr.Content != "" && sr.Filename != "" {
+			// If it has embedded content, create a local file
+			filename := sr.Filename
+			// If we renamed the rule, adjust the filename to match the new key
+			if key != sr.Key {
+				ext := filepath.Ext(filename)
+				base := filepath.Base(filename)
+				base = strings.TrimSuffix(base, ext)
+				if base == sr.Key {
+					filename = key + ext
+				}
+			}
+
+			localFilePath := filepath.Join(cursorDir, filename)
+
+			// Create parent directories if needed
+			if err := os.MkdirAll(filepath.Dir(localFilePath), 0755); err != nil {
+				return fmt.Errorf("failed to create directories for embedded file: %w", err)
+			}
+
+			// Write the file
+			if err := os.WriteFile(localFilePath, []byte(sr.Content), 0644); err != nil {
+				return fmt.Errorf("failed to write embedded rule content: %w", err)
+			}
+
+			// Add the rule as a local reference
+			source := RuleSource{
+				Key:        key,
+				SourceType: SourceTypeLocalRel,
+				Reference:  filename,
+				LocalFiles: []string{filename},
+			}
+
+			// Add to lockfile
+			lock.Rules = append(lock.Rules, source)
+			fmt.Printf("Added rule from embedded content: %s\n", key)
+		} else {
+			// Handle based on source type
+			switch sr.SourceType {
+			case SourceTypeGitHubFile, SourceTypeGitHubDir:
+				// For GitHub references, we can use AddRuleByReference
+				// But for renamed rules, we need to manipulate the lockfile directly after
+				err := AddRuleByReferenceFn(cursorDir, sr.Reference)
+				if err != nil {
+					return fmt.Errorf("failed to add rule from GitHub: %w", err)
+				}
+
+				// If we renamed, update the key in the lockfile
+				if key != sr.Key {
+					newLock, _ := LoadLockFile(cursorDir)
+					for i, rule := range newLock.Rules {
+						if rule.Key == sr.Key {
+							newLock.Rules[i].Key = key
+							newLock.Save(cursorDir)
+							break
+						}
 					}
 				}
-			} else {
-				// No conflict, add as normal
-				if err := AddRuleFn(cursorDir, category, ruleKey); err != nil {
-					return fmt.Errorf("failed to add built-in rule: %v", err)
+
+				fmt.Printf("Added rule from GitHub: %s\n", key)
+
+			case SourceTypeBuiltIn:
+				// For built-in templates, we can use the new key directly with AddRule
+				if err := AddRuleFn(cursorDir, sr.Category, key); err != nil {
+					return fmt.Errorf("failed to add built-in rule: %w", err)
 				}
-			}
-		}
-	}
+				fmt.Printf("Added built-in rule: %s\n", key)
 
-	// Skip unshareable rules
-	for _, rule := range s.Unshareable {
-		fmt.Printf("Skipping unshareable rule: %s\n", rule)
-	}
-
-	// Create local files for embedded content
-	for filePath, content := range s.Embedded {
-		// Get the base name of the file to use as the rule key
-		key := filepath.Base(filePath)
-		key = strings.TrimSuffix(key, filepath.Ext(key))
-
-		if _, exists := existingRules[key]; exists {
-			if autoResolve == "skip" {
-				fmt.Printf("Skipping rule: %s\n", key)
-				continue
-			} else if autoResolve == "rename" {
-				newKey := findAvailableKey(key, existingRules)
-				fmt.Printf("Renaming rule: %s -> %s\n", key, newKey)
-
-				// Use the new key for the file
-				newFilePath := filepath.Join(cursorDir, newKey+filepath.Ext(filePath))
-
-				// Write the file with the new name
-				if err := os.WriteFile(newFilePath, []byte(content), 0644); err != nil {
-					return fmt.Errorf("failed to write embedded file with new name: %v", err)
-				}
-
-				// Add to lockfile
-				lock, err := LoadLockFile(cursorDir)
-				if err != nil {
-					return fmt.Errorf("failed to load lockfile for embedded file: %v", err)
-				}
-
-				rule := RuleSource{
-					Key:        newKey,
-					SourceType: SourceTypeLocalRel,
-					Reference:  filepath.Base(newFilePath),
-					LocalFiles: []string{filepath.Base(newFilePath)},
-				}
-
-				lock.Rules = append(lock.Rules, rule)
-				if err := lock.Save(cursorDir); err != nil {
-					return fmt.Errorf("failed to save lockfile for embedded file: %v", err)
-				}
-
-				fmt.Printf("Added rule from embedded content: %s\n", newKey)
-				continue
+			default:
+				fmt.Printf("Cannot restore rule with source type %s: %s\n", sr.SourceType, key)
 			}
 		}
 
-		// No conflict, add as normal
-		localPath := filepath.Join(cursorDir, filePath)
-
-		// Create parent directories if needed
-		if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
-			return fmt.Errorf("failed to create directories for embedded file: %v", err)
-		}
-
-		// Write the file
-		if err := os.WriteFile(localPath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to write embedded file: %v", err)
-		}
-
-		// Add to lockfile
-		lock, err := LoadLockFile(cursorDir)
-		if err != nil {
-			return fmt.Errorf("failed to load lockfile for embedded file: %v", err)
-		}
-
-		rule := RuleSource{
-			Key:        key,
-			SourceType: SourceTypeLocalRel,
-			Reference:  filePath,
-			LocalFiles: []string{filePath},
-		}
-
-		lock.Rules = append(lock.Rules, rule)
-		if err := lock.Save(cursorDir); err != nil {
-			return fmt.Errorf("failed to save lockfile for embedded file: %v", err)
-		}
-
-		fmt.Printf("Added rule from embedded content: %s\n", key)
+		// Mark this key as used for future conflict detection
+		existingRules[key] = true
 	}
 
 	return nil
