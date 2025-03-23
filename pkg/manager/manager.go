@@ -1,6 +1,8 @@
 package manager
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -73,6 +75,9 @@ type RuleSource struct {
 	// Optionally, store a "resolved" commit if user used a branch
 	// e.g. user says "main," but you lock it to a commit hash for reproducibility
 	ResolvedCommit string `json:"resolvedCommit,omitempty"`
+
+	// SHA256 hash of the file content - used to detect local modifications
+	ContentSHA256 string `json:"contentSHA256,omitempty"`
 }
 
 // LockFile represents the structure of the lockfile on disk.
@@ -410,13 +415,27 @@ func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
 	owner := matches[1]
 	repo := matches[2]
 	gitRef := matches[3]
-	path := matches[4]
+	path := matches[4] // Extract the file path from the URL
 
-	// 2. Construct raw URL
+	// 2. Get the resolved commit hash if it's a branch
+	resolvedCommit := ""
+	if !isGitCommitHash(gitRef) {
+		// This is likely a branch name, get the HEAD commit
+		commit, err := getHeadCommitForBranch(owner, repo, gitRef)
+		if err != nil {
+			return RuleSource{}, fmt.Errorf("failed to get HEAD commit for branch %s: %w", gitRef, err)
+		}
+		resolvedCommit = commit
+	} else {
+		// If it's already a commit hash, use it as is
+		resolvedCommit = gitRef
+	}
+
+	// 3. Construct raw URL
 	rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s",
 		owner, repo, gitRef, path)
 
-	// 3. Download the file
+	// 4. Download the file
 	resp, err := http.Get(rawURL)
 	if err != nil {
 		return RuleSource{}, fmt.Errorf("failed to download file from %s: %w", rawURL, err)
@@ -432,25 +451,82 @@ func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
 		return RuleSource{}, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// 4. Generate rule key and determine destination filename
+	// 5. Calculate content hash
+	contentHash := calculateSHA256(data)
+
+	// 6. Generate rule key and determine destination filename
 	ruleKey := generateRuleKey(ref)
 	destFilename := ruleKey + ".mdc"
 	destPath := filepath.Join(cursorDir, destFilename)
 
-	// 5. Write to .cursor/rules
+	// 7. Write to .cursor/rules
 	err = os.WriteFile(destPath, data, 0644)
 	if err != nil {
 		return RuleSource{}, fmt.Errorf("failed to write to %s: %w", destPath, err)
 	}
 
-	// 6. Create and return RuleSource
+	// 8. Create and return RuleSource
 	return RuleSource{
-		Key:        ruleKey,
-		SourceType: SourceTypeGitHubFile,
-		Reference:  ref,
-		GitRef:     gitRef,
-		LocalFiles: []string{destFilename},
+		Key:            ruleKey,
+		SourceType:     SourceTypeGitHubFile,
+		Reference:      ref,
+		GitRef:         gitRef,
+		LocalFiles:     []string{destFilename},
+		ResolvedCommit: resolvedCommit,
+		ContentSHA256:  contentHash,
 	}, nil
+}
+
+// isGitCommitHash checks if a string looks like a Git commit hash
+func isGitCommitHash(s string) bool {
+	// Git commit hashes are typically 40 characters (full) or 7+ characters (short)
+	// and only contain hexadecimal characters (0-9, a-f)
+	if len(s) < 7 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// getHeadCommitForBranch fetches the HEAD commit for a given branch using GitHub API
+func getHeadCommitForBranch(owner, repo, branch string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, branch)
+
+	// Create a request with User-Agent header (required by GitHub API)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request for GitHub API: %w", err)
+	}
+	req.Header.Set("User-Agent", "Cursor-Rules-Manager")
+
+	// Make the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to query GitHub API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
+	// Parse the response
+	var data struct {
+		Commit struct {
+			SHA string `json:"sha"`
+		} `json:"commit"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", fmt.Errorf("failed to parse GitHub API response: %w", err)
+	}
+
+	return data.Commit.SHA, nil
 }
 
 // handleGitHubDir is a placeholder for downloading multiple files from GitHub dir
@@ -694,8 +770,87 @@ func UpgradeRule(cursorDir string, ruleKey string) error {
 			return fmt.Errorf("failed to create template: %w", err)
 		}
 
-	case SourceTypeGitHubFile, SourceTypeGitHubDir:
-		// For GitHub references, re-download the file(s)
+	case SourceTypeGitHubFile:
+		// For GitHub file references, check for updates and handle local modifications
+
+		// Parse the GitHub URL
+		matches := githubBlobPattern.FindStringSubmatch(ruleToUpgrade.Reference)
+		if len(matches) < 5 {
+			return fmt.Errorf("invalid GitHub blob URL: %s", ruleToUpgrade.Reference)
+		}
+
+		owner := matches[1]
+		repo := matches[2]
+		gitRef := matches[3]
+		_ = matches[4] // Path is not used in this context
+
+		// If we have a branch name, check if there's a new commit
+		if !isGitCommitHash(gitRef) {
+			// Check if the local file has been modified
+			if ruleToUpgrade.ContentSHA256 != "" && len(ruleToUpgrade.LocalFiles) > 0 {
+				localFilePath := filepath.Join(cursorDir, ruleToUpgrade.LocalFiles[0])
+				if fileExists(localFilePath) {
+					currentHash, err := fileContentSHA256(localFilePath)
+					if err != nil {
+						return fmt.Errorf("failed to compute hash of local file: %w", err)
+					}
+
+					if currentHash != ruleToUpgrade.ContentSHA256 {
+						// File has been modified locally
+						fmt.Printf("Warning: Local file %s has been modified since installation.\n", ruleToUpgrade.LocalFiles[0])
+						fmt.Print("Do you want to proceed and overwrite your local changes? (y/N): ")
+						var answer string
+						fmt.Scanln(&answer)
+						if !(strings.ToLower(answer) == "y" || strings.ToLower(answer) == "yes") {
+							return fmt.Errorf("upgrade cancelled to preserve local changes")
+						}
+					}
+				}
+			}
+
+			// Get the latest commit for the branch
+			newCommit, err := getHeadCommitForBranch(owner, repo, gitRef)
+			if err != nil {
+				return fmt.Errorf("failed to get latest commit for branch %s: %w", gitRef, err)
+			}
+
+			// Check if it's the same as the resolved commit we stored
+			if ruleToUpgrade.ResolvedCommit == newCommit {
+				fmt.Printf("Rule %q is already at the latest commit (%s)\n", ruleKey, shortCommit(newCommit))
+				return nil
+			}
+
+			// If it's a different commit, download the new version
+			fmt.Printf("Upgrading %q from commit %s to %s...\n",
+				ruleKey, shortCommit(ruleToUpgrade.ResolvedCommit), shortCommit(newCommit))
+
+			// Now add the rule using the reference (which will update the lockfile)
+			err = AddRuleByReference(cursorDir, ruleToUpgrade.Reference)
+			if err != nil {
+				return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
+			}
+
+			return nil
+		} else {
+			// For pinned commits, we would normally not update (it's pinned)
+			// But we'll re-download the file in case something went wrong
+			fmt.Printf("Rule %q is pinned to commit %s\n", ruleKey, shortCommit(gitRef))
+			fmt.Print("Do you want to re-download this pinned version? (y/N): ")
+			var answer string
+			fmt.Scanln(&answer)
+			if !(strings.ToLower(answer) == "y" || strings.ToLower(answer) == "yes") {
+				return nil
+			}
+		}
+
+		// Re-download the file
+		err := AddRuleByReference(cursorDir, ruleToUpgrade.Reference)
+		if err != nil {
+			return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
+		}
+
+	case SourceTypeGitHubDir:
+		// For GitHub directory references, re-download all files
 		err := AddRuleByReference(cursorDir, ruleToUpgrade.Reference)
 		if err != nil {
 			return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
@@ -711,6 +866,14 @@ func UpgradeRule(cursorDir string, ruleKey string) error {
 	}
 
 	return nil
+}
+
+// shortCommit returns the first 7 characters of a commit hash
+func shortCommit(commit string) string {
+	if len(commit) <= 7 {
+		return commit
+	}
+	return commit[:7]
 }
 
 // ListInstalledRules returns the list of installed rules from the lockfile.
@@ -809,6 +972,21 @@ func SyncLocalRules(cursorDir string) error {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// calculateSHA256 calculates the SHA256 hash of the content of a file or byte slice
+func calculateSHA256(data []byte) string {
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
+}
+
+// fileContentSHA256 calculates the SHA256 hash of a file's content
+func fileContentSHA256(filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file for SHA256 calculation: %w", err)
+	}
+	return calculateSHA256(data), nil
 }
 
 // ShareableRule represents a rule that can be shared with others

@@ -33,6 +33,7 @@ func main() {
 
 	removeCmd := flag.NewFlagSet("remove", flag.ExitOnError)
 	upgradeCmd := flag.NewFlagSet("upgrade", flag.ExitOnError)
+	updateCmd := flag.NewFlagSet("update", flag.ExitOnError)
 
 	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
 	listDetailedFlag := listCmd.Bool("detailed", false, "Show detailed information about installed rules")
@@ -172,6 +173,23 @@ func main() {
 				fmt.Printf("Error upgrading rule: %v\n", err)
 			} else {
 				fmt.Printf("Rule %q upgraded successfully.\n", ruleKey)
+			}
+			return
+
+		case "update":
+			// Alias for upgrade
+			// Usage: cursor-rules update <ruleKey>
+			_ = updateCmd.Parse(args[1:])
+			if updateCmd.NArg() < 1 {
+				fmt.Println("Usage: cursor-rules update <ruleKey>")
+				fmt.Println("  (This is an alias for 'upgrade')")
+				return
+			}
+			ruleKey := updateCmd.Arg(0)
+			if err := manager.UpgradeRule(cursorDir, ruleKey); err != nil {
+				fmt.Printf("Error updating rule: %v\n", err)
+			} else {
+				fmt.Printf("Rule %q updated successfully.\n", ruleKey)
 			}
 			return
 
@@ -322,34 +340,28 @@ func main() {
 
 // Show help information for the cursor-rules command
 func showHelp() {
-	fmt.Println("\nUsage:")
-	fmt.Println("  cursor-rules [command] [flags]")
+	fmt.Println("Usage: cursor-rules [command]")
 	fmt.Println("\nCommands:")
-	fmt.Println("  init                Initialize Cursor Rules with the init template")
-	fmt.Println("  setup               Auto-detect project type, then add rules")
-	fmt.Println("  add <reference>     Add a rule from a reference (local file or GitHub URL)")
-	fmt.Println("  add-ref <reference> Add a rule from a reference (alias for 'add')")
-	fmt.Println("  remove <rule>       Remove an installed rule")
-	fmt.Println("  upgrade <rule>      Reinstall / upgrade a rule")
-	fmt.Println("  list [--detailed]   List installed rules (--detailed for more info)")
-	fmt.Println("  set-lock-location   Set the location of the lockfile (--root for project root)")
-	fmt.Println("  share [--output <file>] [--embed]  Share rules to a file (--embed for local rule content)")
-	fmt.Println("  restore <file> [--auto-resolve <option>]  Restore rules from a shared file")
-	fmt.Println("  --init              Same as the 'init' command")
-	fmt.Println("  --setup             Same as the 'setup' command")
-	fmt.Println("  --version           Print version information")
+	fmt.Println("  init                           Initialize Cursor Rules with just the init template")
+	fmt.Println("  setup                          Run project type detection and setup appropriate rules")
+	fmt.Println("  add <reference>                Add a rule from a reference (local file or GitHub URL)")
+	fmt.Println("  add-ref <reference>            (Alias for 'add') Add rule using a direct reference")
+	fmt.Println("  remove <ruleKey>               Remove an installed rule")
+	fmt.Println("  upgrade <ruleKey>              Upgrade a rule to the latest version")
+	fmt.Println("  update <ruleKey>               (Alias for 'upgrade') Update a rule to the latest version")
+	fmt.Println("  list [--detailed]              List installed rules, optionally with details")
+	fmt.Println("  set-lock-location [--root]     Set lockfile location (default is .cursor/rules)")
+	fmt.Println("  share [--output=FILE] [--embed] Generate shareable rule definitions")
+	fmt.Println("  restore <sharePath> [--auto-resolve=OPTION] Restore rules from shareable definitions")
+	fmt.Println("\nFlags:")
+	fmt.Println("  --version                      Show version information")
+	fmt.Println("  --init                         Initialize Cursor Rules with just the init template")
+	fmt.Println("  --setup                        Run project type detection and setup appropriate rules")
 	fmt.Println("\nExamples:")
-	fmt.Println("  cursor-rules init")
-	fmt.Println("  cursor-rules setup")
-	fmt.Println("  cursor-rules add ./custom-rules/my-rule.mdc")
-	fmt.Println("  cursor-rules add https://github.com/user/repo/blob/main/rules/python.mdc")
-	fmt.Println("  cursor-rules add-ref /Users/me/custom-rule.mdc")
-	fmt.Println("  cursor-rules add-ref https://github.com/user/repo/blob/main/rules/python.mdc")
-	fmt.Println("  cursor-rules remove python")
+	fmt.Println("  cursor-rules add https://github.com/user/repo/blob/main/path/to/rule.mdc")
+	fmt.Println("  cursor-rules add ./local/path/to/rule.mdc")
+	fmt.Println("  cursor-rules upgrade my-rule")
 	fmt.Println("  cursor-rules list --detailed")
-	fmt.Println("  cursor-rules set-lock-location --root")
-	fmt.Println("  cursor-rules share --output my-rules.json --embed")
-	fmt.Println("  cursor-rules restore shared-rules.json --auto-resolve overwrite")
 }
 
 // runInitCommand initializes cursor rules with just the init template
