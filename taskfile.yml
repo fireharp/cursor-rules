@@ -1,12 +1,10 @@
-version: "3"
+version: '3'
 
 vars:
   BINARY: cursor-rules
   BUILD_DIR: ./bin
   MAIN_PKG: ./cmd/cursor-rules
   VERSION: 0.1.5
-  GOOS: "{{OS}}"
-  GOARCH: "{{ARCH}}"
 
 tasks:
   default:
@@ -18,15 +16,7 @@ tasks:
     desc: Build the cursor-rules binary
     cmds:
       - mkdir -p {{.BUILD_DIR}}
-      - echo "Building {{.BINARY}} for {{.GOOS}}/{{.GOARCH}}..."
-      - GOOS={{.GOOS}} GOARCH={{.GOARCH}} go build -v -ldflags="-X 'main.Version={{.VERSION}}'" -o {{.BUILD_DIR}}/{{.BINARY}} {{.MAIN_PKG}}
-    sources:
-      - cmd/**/*.go
-      - pkg/**/*.go
-      - go.mod
-      - go.sum
-    generates:
-      - "{{.BUILD_DIR}}/{{.BINARY}}"
+      - go build -v -o {{.BUILD_DIR}}/{{.BINARY}} {{.MAIN_PKG}}
 
   run:
     desc: Run the cursor-rules application
@@ -39,148 +29,13 @@ tasks:
     cmds:
       - go test -v ./...
 
-  test:coverage:
-    desc: Run tests with coverage report
-    cmds:
-      - mkdir -p {{.BUILD_DIR}}/coverage
-      - go test -coverprofile={{.BUILD_DIR}}/coverage/coverage.out ./...
-      - go tool cover -html={{.BUILD_DIR}}/coverage/coverage.out -o {{.BUILD_DIR}}/coverage/coverage.html
-      - echo "Coverage report generated at {{.BUILD_DIR}}/coverage/coverage.html"
-
-  lint:
-    desc: Lint the code
-    cmds:
-      - go vet ./...
-      - |
-        if command -v golangci-lint > /dev/null; then
-          golangci-lint run
-        else
-          echo "golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
-        fi
-
-  fmt:
-    desc: Format the code
-    cmds:
-      - go fmt ./...
-
   clean:
     desc: Clean build artifacts
     cmds:
       - rm -rf {{.BUILD_DIR}}
-      - go clean
 
   install:
-    desc: Install the binary to GOPATH/bin
+    desc: Install the cursor-rules binary
     deps: [build]
     cmds:
-      - cp {{.BUILD_DIR}}/{{.BINARY}} $(go env GOPATH)/bin/
-      - echo "Installed {{.BINARY}} to $(go env GOPATH)/bin/"
-
-  templates:list:
-    desc: List all available templates
-    cmds:
-      - go run {{.MAIN_PKG}} --list-templates
-
-  dev:watch:
-    desc: Watch for file changes and rebuild
-    cmds:
-      - |
-        echo "Watching for changes... Press Ctrl+C to stop"
-        find . -name "*.go" | entr -r task build
-
-  all:
-    desc: Run all tasks (fmt, lint, test, build)
-    cmds:
-      - task: fmt
-      - task: lint
-      - task: test
-      - task: build
-
-  dist:
-    desc: Create distribution packages for multiple platforms
-    cmds:
-      - mkdir -p {{.BUILD_DIR}}/dist
-      - task: dist:linux
-      - task: dist:macos
-      - task: dist:windows
-      - echo "Distribution packages created in {{.BUILD_DIR}}/dist"
-
-  dist:linux:
-    desc: Create Linux distribution package
-    cmds:
-      - GOOS=linux GOARCH=amd64 task build
-      - mkdir -p {{.BUILD_DIR}}/dist/linux
-      - cp {{.BUILD_DIR}}/{{.BINARY}} {{.BUILD_DIR}}/dist/linux/
-      - cp -r templates {{.BUILD_DIR}}/dist/linux/
-      - cp README.md {{.BUILD_DIR}}/dist/linux/
-      - echo "Linux package created in {{.BUILD_DIR}}/dist/linux"
-
-  dist:macos:
-    desc: Create macOS distribution package
-    cmds:
-      - GOOS=darwin GOARCH=amd64 task build
-      - mkdir -p {{.BUILD_DIR}}/dist/macos
-      - cp {{.BUILD_DIR}}/{{.BINARY}} {{.BUILD_DIR}}/dist/macos/
-      - cp -r templates {{.BUILD_DIR}}/dist/macos/
-      - cp README.md {{.BUILD_DIR}}/dist/macos/
-      - echo "macOS package created in {{.BUILD_DIR}}/dist/macos"
-
-  dist:windows:
-    desc: Create Windows distribution package
-    cmds:
-      - GOOS=windows GOARCH=amd64 task build
-      - mkdir -p {{.BUILD_DIR}}/dist/windows
-      - cp {{.BUILD_DIR}}/{{.BINARY}}.exe {{.BUILD_DIR}}/dist/windows/
-      - cp -r templates {{.BUILD_DIR}}/dist/windows/
-      - cp README.md {{.BUILD_DIR}}/dist/windows/
-      - echo "Windows package created in {{.BUILD_DIR}}/dist/windows"
-
-  mvp:test:
-    desc: Test the MVP init and setup functionality
-    deps: [build]
-    cmds:
-      - mkdir -p {{.BUILD_DIR}}/test
-      - echo "Creating test directories..."
-      - mkdir -p {{.BUILD_DIR}}/test/npm-project {{.BUILD_DIR}}/test/python-project
-      - echo "Creating npm/React project..."
-      - echo '{ "name": "example-npm", "version": "1.0.0", "dependencies": { "react": "^18.2.0" } }' > {{.BUILD_DIR}}/test/npm-project/package.json
-      - echo "Creating Python project..."
-      - echo 'from setuptools import setup\n\nsetup(name="example-python", version="1.0.0", packages=["example_python"])' > {{.BUILD_DIR}}/test/python-project/setup.py
-      - echo "Testing init on npm project..."
-      - cd {{.BUILD_DIR}}/test/npm-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --init
-      - echo "Testing setup on npm project..."
-      - cd {{.BUILD_DIR}}/test/npm-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --setup
-      - echo "Testing init on Python project..."
-      - cd {{.BUILD_DIR}}/test/python-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --init
-      - echo "Testing setup on Python project..."
-      - cd {{.BUILD_DIR}}/test/python-project && ../../../{{.BUILD_DIR}}/{{.BINARY}} --setup
-      - echo "MVP testing complete!"
-
-  mvp:validate:
-    desc: Validate the results of the MVP test
-    cmds:
-      - echo "Validating npm project rules..."
-      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/init.mdc || (echo "Error init.mdc not found in npm project" && exit 1)
-      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/setup.mdc || (echo "Error setup.mdc not found in npm project" && exit 1)
-      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/react.mdc || (echo "Error react.mdc not found in npm project" && exit 1)
-      - test -f {{.BUILD_DIR}}/test/npm-project/.cursor/rules/general.mdc || (echo "Error general.mdc not found in npm project" && exit 1)
-      - echo "Validating Python project rules..."
-      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/init.mdc || (echo "Error init.mdc not found in Python project" && exit 1)
-      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/setup.mdc || (echo "Error setup.mdc not found in Python project" && exit 1)
-      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/python.mdc || (echo "Error python.mdc not found in Python project" && exit 1)
-      - test -f {{.BUILD_DIR}}/test/python-project/.cursor/rules/general.mdc || (echo "Error general.mdc not found in Python project" && exit 1)
-      - echo "MVP validation successful!"
-
-  mvp:cleanup:
-    desc: Clean up MVP test artifacts
-    cmds:
-      - echo "Cleaning up MVP test artifacts..."
-      - rm -rf {{.BUILD_DIR}}/test
-      - echo "MVP cleanup complete!"
-
-  mvp:all:
-    desc: Run all MVP tasks (test, validate, cleanup)
-    cmds:
-      - task: mvp:test
-      - task: mvp:validate
-      - task: mvp:cleanup
+      - cp {{.BUILD_DIR}}/{{.BINARY}} $GOPATH/bin/
