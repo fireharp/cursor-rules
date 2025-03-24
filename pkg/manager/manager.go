@@ -1131,10 +1131,34 @@ func findAvailableKey(baseKey string, existingRules map[string]bool) string {
 // RestoreFromShared restores rules from a shareable file
 // autoResolve specifies how to handle conflicts: "skip", "overwrite", or "rename"
 func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
-	// Load the rules to restore
-	shareData, err := os.ReadFile(sharePath)
-	if err != nil {
-		return fmt.Errorf("failed to read shareable file: %v", err)
+	var shareData []byte
+	var err error
+
+	// Check if sharePath is a URL
+	if strings.HasPrefix(sharePath, "http://") || strings.HasPrefix(sharePath, "https://") {
+		// Download the file from the URL
+		resp, err := http.Get(sharePath)
+		if err != nil {
+			return fmt.Errorf("failed to download shareable file from URL: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Check status code
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("failed to download shareable file from URL: status code %d", resp.StatusCode)
+		}
+
+		// Read the response body
+		shareData, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read shareable file from URL: %v", err)
+		}
+	} else {
+		// Load the rules from a local file
+		shareData, err = os.ReadFile(sharePath)
+		if err != nil {
+			return fmt.Errorf("failed to read shareable file: %v", err)
+		}
 	}
 
 	// Unmarshal into ShareableLock format

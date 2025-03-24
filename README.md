@@ -19,6 +19,9 @@ cursor-rules share shared-rules.json --embed-content
 
 # Restore rules from a shared file
 cursor-rules restore shared-rules.json --auto-resolve rename
+
+# Restore rules from a URL
+cursor-rules restore https://example.com/shared-rules.json --auto-resolve rename
 ```
 
 ## About
@@ -127,6 +130,9 @@ When restoring rules from a shared file, you can specify how to handle conflicts
 ```bash
 # Restore rules from a shared file (will prompt for conflict resolution)
 cursor-rules restore shared-rules.json
+
+# Restore rules directly from a URL
+cursor-rules restore https://example.com/shared-rules.json
 
 # Automatically skip rules that would conflict
 cursor-rules restore shared-rules.json --auto-resolve skip

@@ -288,7 +288,8 @@ func main() {
 			// Usage: cursor-rules restore <file> [--auto-resolve (skip|overwrite|rename)]
 			_ = restoreCmd.Parse(args[1:])
 			if restoreCmd.NArg() < 1 {
-				fmt.Println("Usage: cursor-rules restore <file> [--auto-resolve (skip|overwrite|rename)]")
+				fmt.Println("Usage: cursor-rules restore <file|url> [--auto-resolve (skip|overwrite|rename)]")
+				fmt.Println("  where <file|url> can be a local file path or a URL to a shared rules file")
 				return
 			}
 			sharedFilePath := restoreCmd.Arg(0)
@@ -352,7 +353,8 @@ func showHelp() {
 	fmt.Println("  list [--detailed]              List installed rules, optionally with details")
 	fmt.Println("  set-lock-location [--root]     Set lockfile location (default is .cursor/rules)")
 	fmt.Println("  share [--output=FILE] [--embed] Generate shareable rule definitions")
-	fmt.Println("  restore <sharePath> [--auto-resolve=OPTION] Restore rules from shareable definitions")
+	fmt.Println("  restore <file|url> [--auto-resolve=OPTION] Restore rules from shareable definitions")
+	fmt.Println("                                              (file|url can be a local file path or a URL)")
 	fmt.Println("\nFlags:")
 	fmt.Println("  --version                      Show version information")
 	fmt.Println("  --init                         Initialize Cursor Rules with just the init template")
