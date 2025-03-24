@@ -20,14 +20,14 @@ var (
 	date    = "unknown"
 )
 
-// AppFlags contains the parsed top-level command flags
+// AppFlags contains the parsed top-level command flags.
 type AppFlags struct {
 	versionFlag bool
 	initFlag    bool
 	setupFlag   bool
 }
 
-// AppFlagSets contains all the flag sets for subcommands
+// AppFlagSets contains all the flag sets for subcommands.
 type AppFlagSets struct {
 	addCmd                 *flag.FlagSet
 	addRefCmd              *flag.FlagSet
@@ -102,7 +102,7 @@ func main() {
 	showHelp()
 }
 
-// defineFlags sets up all command-line flags and returns the parsed flags
+// defineFlags sets up all command-line flags and returns the parsed flags.
 func defineFlags() (AppFlags, AppFlagSets) {
 	// Define top-level flags
 	versionFlag := flag.Bool("version", false, "Print version information")
@@ -155,7 +155,7 @@ func defineFlags() (AppFlags, AppFlagSets) {
 		}
 }
 
-// initializeEnvironment sets up the environment (directories, templates)
+// initializeEnvironment sets up the environment (directories, templates).
 func initializeEnvironment() (cwd, cursorDir, projectDir string, err error) {
 	// Get current working directory
 	cwd, err = os.Getwd()
@@ -188,12 +188,12 @@ func initializeEnvironment() (cwd, cursorDir, projectDir string, err error) {
 	return cwd, cursorDir, projectDir, nil
 }
 
-// printVersion prints the version information
+// printVersion prints the version information.
 func printVersion() {
 	fmt.Printf("cursor-rules version %s, commit %s, built at %s\n", version, commit, date)
 }
 
-// handleCommand processes the given command and its arguments
+// handleCommand processes the given command and its arguments.
 func handleCommand(cursorDir, command string, args []string, flagSets AppFlagSets) (bool, error) {
 	switch command {
 	case "add":
@@ -224,7 +224,7 @@ func handleCommand(cursorDir, command string, args []string, flagSets AppFlagSet
 	return false, nil
 }
 
-// Handler for the 'add' command
+// Handler for the 'add' command.
 func handleAddCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing add command: %w", err)
@@ -248,7 +248,7 @@ func handleAddCommand(cursorDir string, args []string, cmd *flag.FlagSet) error 
 	return nil
 }
 
-// Handler for the 'add-ref' command
+// Handler for the 'add-ref' command.
 func handleAddRefCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing add-ref command: %w", err)
@@ -272,7 +272,7 @@ func handleAddRefCommand(cursorDir string, args []string, cmd *flag.FlagSet) err
 	return nil
 }
 
-// Handler for the 'remove' command
+// Handler for the 'remove' command.
 func handleRemoveCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing remove command: %w", err)
@@ -292,7 +292,7 @@ func handleRemoveCommand(cursorDir string, args []string, cmd *flag.FlagSet) err
 	return nil
 }
 
-// Handler for the 'upgrade' command
+// Handler for the 'upgrade' command.
 func handleUpgradeCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing upgrade command: %w", err)
@@ -312,7 +312,7 @@ func handleUpgradeCommand(cursorDir string, args []string, cmd *flag.FlagSet) er
 	return nil
 }
 
-// Handler for the 'update' command (alias for upgrade)
+// Handler for the 'update' command (alias for upgrade).
 func handleUpdateCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing update command: %w", err)
@@ -333,7 +333,7 @@ func handleUpdateCommand(cursorDir string, args []string, cmd *flag.FlagSet) err
 	return nil
 }
 
-// Handler for the 'list' command
+// Handler for the 'list' command.
 func handleListCommand(cursorDir string, args []string, cmd *flag.FlagSet, detailedFlag *bool) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing list command: %w", err)
@@ -352,7 +352,7 @@ func handleListCommand(cursorDir string, args []string, cmd *flag.FlagSet, detai
 	return showSimpleList(cursorDir)
 }
 
-// Shows a detailed list of installed rules
+// Shows a detailed list of installed rules.
 func showDetailedList(cursorDir string) error {
 	rules, err := manager.GetInstalledRules(cursorDir)
 	if err != nil {
@@ -380,7 +380,7 @@ func showDetailedList(cursorDir string) error {
 	return nil
 }
 
-// Shows a simple list of installed rules
+// Shows a simple list of installed rules.
 func showSimpleList(cursorDir string) error {
 	installed, err := manager.ListInstalledRules(cursorDir)
 	if err != nil {
@@ -399,7 +399,7 @@ func showSimpleList(cursorDir string) error {
 	return nil
 }
 
-// Handler for the 'set-lock-location' command
+// Handler for the 'set-lock-location' command.
 func handleSetLockLocationCommand(cursorDir string, args []string, cmd *flag.FlagSet, useRootFlag *bool) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing set-lock-location command: %w", err)
@@ -421,7 +421,7 @@ func handleSetLockLocationCommand(cursorDir string, args []string, cmd *flag.Fla
 	return nil
 }
 
-// Handler for the 'share' command
+// Handler for the 'share' command.
 func handleShareCommand(cursorDir string, args []string, cmd *flag.FlagSet, outputFlag *string, embedFlag *bool) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing share command: %w", err)
@@ -442,7 +442,7 @@ func handleShareCommand(cursorDir string, args []string, cmd *flag.FlagSet, outp
 	return nil
 }
 
-// Handler for the 'restore' command
+// Handler for the 'restore' command.
 func handleRestoreCommand(cursorDir string, args []string, cmd *flag.FlagSet, autoResolveFlag *string) error {
 	if err := cmd.Parse(args); err != nil {
 		return fmt.Errorf("error parsing restore command: %w", err)

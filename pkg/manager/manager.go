@@ -740,144 +740,202 @@ func RemoveRule(cursorDir string, ruleKey string) error {
 	return nil
 }
 
-// UpgradeRule re-installs the template from the "latest" version in the built-in templates.
-func UpgradeRule(cursorDir string, ruleKey string) error {
-	// 1. Ensure the rule is actually installed
-	lock, err := LoadLockFile(cursorDir)
+// findRuleToUpgrade locates a rule in the lockfile by its key.
+func findRuleToUpgrade(lock *LockFile, ruleKey string) (*RuleSource, error) {
+	if !lock.IsInstalled(ruleKey) {
+		return nil, fmt.Errorf("rule %q is not installed, can't upgrade", ruleKey)
+	}
+
+	for _, rule := range lock.Rules {
+		if rule.Key == ruleKey {
+			return &rule, nil
+		}
+	}
+
+	// This should never happen if IsInstalled returned true
+	return nil, fmt.Errorf("rule %q not found in lockfile", ruleKey)
+}
+
+// upgradeBuiltInRule upgrades a built-in template rule.
+func upgradeBuiltInRule(cursorDir string, rule *RuleSource) error {
+	// For built-in rules, use the category from the rule
+	cat, ok := templates.Categories[rule.Category]
+	if !ok {
+		return fmt.Errorf("category %q not found", rule.Category)
+	}
+
+	tmpl, ok := cat.Templates[rule.Key]
+	if !ok {
+		return fmt.Errorf("rule %q not found in category %q", rule.Key, rule.Category)
+	}
+
+	err := templates.CreateTemplate(cursorDir, tmpl)
+	if err != nil {
+		return fmt.Errorf("failed to create template: %w", err)
+	}
+
+	return nil
+}
+
+// checkLocalModifications checks if a rule file has been modified locally.
+func checkLocalModifications(rule *RuleSource, cursorDir string) (bool, error) {
+	// Only check if we stored a hash and have local files
+	if rule.ContentSHA256 == "" || len(rule.LocalFiles) == 0 {
+		return false, nil
+	}
+
+	localFilePath := filepath.Join(cursorDir, rule.LocalFiles[0])
+	if !fileExists(localFilePath) {
+		return false, nil
+	}
+
+	currentHash, err := fileContentSHA256(localFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to compute hash of local file: %w", err)
+	}
+
+	return currentHash != rule.ContentSHA256, nil
+}
+
+// promptForLocalModifications asks the user whether to overwrite local changes.
+func promptForLocalModifications(filePath string) error {
+	fmt.Printf("Warning: Local file %s has been modified since installation.\n", filePath)
+	fmt.Print("Do you want to proceed and overwrite your local changes? (y/N): ")
+	var answer string
+	if _, err := fmt.Scanln(&answer); err != nil {
+		// If error reading input (e.g., empty line), treat as "no"
+		return errors.New("upgrade cancelled to preserve local changes")
+	}
+
+	if !(strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")) {
+		return errors.New("upgrade cancelled to preserve local changes")
+	}
+
+	return nil
+}
+
+// upgradeGitHubBranchRule upgrades a rule from a GitHub branch (not a commit).
+func upgradeGitHubBranchRule(cursorDir string, rule *RuleSource, gitRef, owner, repo string) error {
+	// Check if the local file has been modified
+	hasModifications, err := checkLocalModifications(rule, cursorDir)
 	if err != nil {
 		return err
 	}
-	if !lock.IsInstalled(ruleKey) {
-		return fmt.Errorf("rule %q is not installed, can't upgrade", ruleKey)
+
+	if hasModifications {
+		err := promptForLocalModifications(rule.LocalFiles[0])
+		if err != nil {
+			return err
+		}
 	}
 
-	// 2. Find the rule in the enhanced structure
-	var ruleToUpgrade RuleSource
-	for _, rule := range lock.Rules {
-		if rule.Key == ruleKey {
-			ruleToUpgrade = rule
-			break
-		}
+	// Get the latest commit for the branch
+	newCommit, err := getHeadCommitForBranch(context.Background(), owner, repo, gitRef)
+	if err != nil {
+		return fmt.Errorf("failed to get latest commit for branch %s: %w", gitRef, err)
+	}
+
+	// Check if it's the same as the resolved commit we stored
+	if rule.ResolvedCommit == newCommit {
+		fmt.Printf("Rule %q is already at the latest commit (%s)\n", rule.Key, shortCommit(newCommit))
+		return nil
+	}
+
+	// If it's a different commit, download the new version
+	fmt.Printf("Upgrading %q from commit %s to %s...\n",
+		rule.Key, shortCommit(rule.ResolvedCommit), shortCommit(newCommit))
+
+	// Now add the rule using the reference (which will update the lockfile)
+	err = AddRuleByReference(cursorDir, rule.Reference)
+	if err != nil {
+		return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
+	}
+
+	return nil
+}
+
+// upgradeGitHubPinnedRule handles rules pinned to specific GitHub commits.
+func upgradeGitHubPinnedRule(cursorDir string, rule *RuleSource, gitRef string) error {
+	fmt.Printf("Rule %q is pinned to commit %s\n", rule.Key, shortCommit(gitRef))
+	fmt.Print("Do you want to re-download this pinned version? (y/N): ")
+	var answer string
+	if _, err := fmt.Scanln(&answer); err != nil {
+		// If error reading input (e.g., empty line), treat as "no"
+		fmt.Println("No input provided, skipping re-download")
+		return errors.New("upgrade skipped: no input provided")
+	}
+
+	if !(strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")) {
+		return nil
+	}
+
+	// Re-download the file
+	err := AddRuleByReference(cursorDir, rule.Reference)
+	if err != nil {
+		return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
+	}
+
+	return nil
+}
+
+// upgradeLocalRule handles local file rules.
+func upgradeLocalRule(cursorDir string, rule *RuleSource) error {
+	_, err := handleLocalFile(cursorDir, rule.Reference,
+		rule.SourceType == SourceTypeLocalAbs)
+	if err != nil {
+		return fmt.Errorf("failed to upgrade local file: %w", err)
+	}
+	return nil
+}
+
+// UpgradeRule re-installs the template from the "latest" version in the built-in templates.
+func UpgradeRule(cursorDir, ruleKey string) error {
+	// 1. Load the lockfile
+	lock, err := LoadLockFile(cursorDir)
+	if err != nil {
+		return fmt.Errorf("failed to load lockfile: %w", err)
+	}
+
+	// 2. Find the rule to upgrade
+	rule, err := findRuleToUpgrade(lock, ruleKey)
+	if err != nil {
+		return err
 	}
 
 	// 3. Handle upgrade based on source type
-	switch ruleToUpgrade.SourceType {
+	switch rule.SourceType {
 	case SourceTypeBuiltIn:
-		// For built-in rules, use the category from the rule
-		cat, ok := templates.Categories[ruleToUpgrade.Category]
-		if !ok {
-			return fmt.Errorf("category %q not found", ruleToUpgrade.Category)
-		}
-		tmpl, ok := cat.Templates[ruleKey]
-		if !ok {
-			return fmt.Errorf("rule %q not found in category %q", ruleKey, ruleToUpgrade.Category)
-		}
-
-		err = templates.CreateTemplate(cursorDir, tmpl)
-		if err != nil {
-			return fmt.Errorf("failed to create template: %w", err)
-		}
+		return upgradeBuiltInRule(cursorDir, rule)
 
 	case SourceTypeGitHubFile:
-		// For GitHub file references, check for updates and handle local modifications
-
 		// Parse the GitHub URL
-		matches := githubBlobPattern.FindStringSubmatch(ruleToUpgrade.Reference)
+		matches := githubBlobPattern.FindStringSubmatch(rule.Reference)
 		if len(matches) < 5 {
-			return fmt.Errorf("invalid GitHub blob URL: %s", ruleToUpgrade.Reference)
+			return fmt.Errorf("invalid GitHub blob URL: %s", rule.Reference)
 		}
 
 		owner := matches[1]
 		repo := matches[2]
 		gitRef := matches[3]
-		_ = matches[4] // Path is not used in this context
+		// Path is not used in this context
 
 		// If we have a branch name, check if there's a new commit
 		if !isGitCommitHash(gitRef) {
-			// Check if the local file has been modified
-			if ruleToUpgrade.ContentSHA256 != "" && len(ruleToUpgrade.LocalFiles) > 0 {
-				localFilePath := filepath.Join(cursorDir, ruleToUpgrade.LocalFiles[0])
-				if fileExists(localFilePath) {
-					currentHash, err := fileContentSHA256(localFilePath)
-					if err != nil {
-						return fmt.Errorf("failed to compute hash of local file: %w", err)
-					}
-
-					if currentHash != ruleToUpgrade.ContentSHA256 {
-						// File has been modified locally
-						fmt.Printf("Warning: Local file %s has been modified since installation.\n", ruleToUpgrade.LocalFiles[0])
-						fmt.Print("Do you want to proceed and overwrite your local changes? (y/N): ")
-						var answer string
-						if _, err := fmt.Scanln(&answer); err != nil {
-							// If error reading input (e.g., empty line), treat as "no"
-							return errors.New("upgrade cancelled to preserve local changes")
-						}
-						if !(strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")) {
-							return errors.New("upgrade cancelled to preserve local changes")
-						}
-					}
-				}
-			}
-
-			// Get the latest commit for the branch
-			newCommit, err := getHeadCommitForBranch(context.Background(), owner, repo, gitRef)
-			if err != nil {
-				return fmt.Errorf("failed to get latest commit for branch %s: %w", gitRef, err)
-			}
-
-			// Check if it's the same as the resolved commit we stored
-			if ruleToUpgrade.ResolvedCommit == newCommit {
-				fmt.Printf("Rule %q is already at the latest commit (%s)\n", ruleKey, shortCommit(newCommit))
-				return nil
-			}
-
-			// If it's a different commit, download the new version
-			fmt.Printf("Upgrading %q from commit %s to %s...\n",
-				ruleKey, shortCommit(ruleToUpgrade.ResolvedCommit), shortCommit(newCommit))
-
-			// Now add the rule using the reference (which will update the lockfile)
-			err = AddRuleByReference(cursorDir, ruleToUpgrade.Reference)
-			if err != nil {
-				return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
-			}
-
-			return nil
+			return upgradeGitHubBranchRule(cursorDir, rule, gitRef, owner, repo)
 		}
 
 		// For pinned commits, we would normally not update (it's pinned)
-		// But we'll re-download the file in case something went wrong
-		fmt.Printf("Rule %q is pinned to commit %s\n", ruleKey, shortCommit(gitRef))
-		fmt.Print("Do you want to re-download this pinned version? (y/N): ")
-		var answer string
-		if _, err := fmt.Scanln(&answer); err != nil {
-			// If error reading input (e.g., empty line), treat as "no"
-			fmt.Println("No input provided, skipping re-download")
-			return errors.New("upgrade skipped: no input provided")
-		}
-		if !(strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")) {
-			return nil
-		}
-
-		// Re-download the file
-		err := AddRuleByReference(cursorDir, ruleToUpgrade.Reference)
-		if err != nil {
-			return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
-		}
+		return upgradeGitHubPinnedRule(cursorDir, rule, gitRef)
 
 	case SourceTypeGitHubDir:
 		// For GitHub directory references, re-download all files
-		err := AddRuleByReference(cursorDir, ruleToUpgrade.Reference)
+		err := AddRuleByReference(cursorDir, rule.Reference)
 		if err != nil {
 			return fmt.Errorf("failed to upgrade GitHub reference: %w", err)
 		}
 
 	case SourceTypeLocalAbs, SourceTypeLocalRel:
-		// For local files, re-copy the file
-		_, err := handleLocalFile(cursorDir, ruleToUpgrade.Reference,
-			ruleToUpgrade.SourceType == SourceTypeLocalAbs)
-		if err != nil {
-			return fmt.Errorf("failed to upgrade local file: %w", err)
-		}
+		return upgradeLocalRule(cursorDir, rule)
 	}
 
 	return nil
@@ -1140,214 +1198,332 @@ func findAvailableKey(baseKey string, existingRules map[string]bool) string {
 	return newKey
 }
 
-// autoResolve specifies how to handle conflicts: "skip", "overwrite", or "rename".
-func RestoreFromShared(ctx context.Context, cursorDir, sharePath, autoResolve string) error {
-	var shareData []byte
-	var err error
-
+// loadShareableData loads shareable data from a URL or local file.
+func loadShareableData(ctx context.Context, sharePath string) ([]byte, error) {
 	// Check if sharePath is a URL
 	if strings.HasPrefix(sharePath, "http://") || strings.HasPrefix(sharePath, "https://") {
-		// Download the file from the URL
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, sharePath, http.NoBody)
-		if err != nil {
-			return fmt.Errorf("failed to create request for shareable file URL: %w", err)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return fmt.Errorf("failed to download shareable file from URL: %w", err)
-		}
-		defer resp.Body.Close()
-
-		// Check status code
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("failed to download shareable file from URL: status code %d", resp.StatusCode)
-		}
-
-		// Read the response body
-		shareData, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to read shareable file from URL: %w", err)
-		}
-	} else {
-		// Load the rules from a local file
-		shareData, err = os.ReadFile(sharePath)
-		if err != nil {
-			return fmt.Errorf("failed to read shareable file: %w", err)
-		}
+		return loadShareableFromURL(ctx, sharePath)
 	}
 
-	// Unmarshal into ShareableLock format
+	// Load the rules from a local file
+	shareData, err := os.ReadFile(sharePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read shareable file: %w", err)
+	}
+
+	return shareData, nil
+}
+
+// loadShareableFromURL downloads shareable data from a URL.
+func loadShareableFromURL(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for shareable file URL: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download shareable file from URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to download shareable file from URL: status code %d", resp.StatusCode)
+	}
+
+	// Read the response body
+	shareData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read shareable file from URL: %w", err)
+	}
+
+	return shareData, nil
+}
+
+// parseShareableLock parses raw JSON data into a ShareableLock structure.
+func parseShareableLock(data []byte) (*ShareableLock, error) {
 	var shareable ShareableLock
-	if err := json.Unmarshal(shareData, &shareable); err != nil {
-		return fmt.Errorf("failed to parse shareable file: %w", err)
+	if err := json.Unmarshal(data, &shareable); err != nil {
+		return nil, fmt.Errorf("failed to parse shareable file: %w", err)
 	}
 
 	// Validate format version
 	if shareable.FormatVersion != 1 {
-		return fmt.Errorf("unsupported shareable file format version: %d", shareable.FormatVersion)
+		return nil, fmt.Errorf("unsupported shareable file format version: %d", shareable.FormatVersion)
 	}
 
-	// Load existing lockfile
+	return &shareable, nil
+}
+
+// loadOrCreateLockFile loads the existing lockfile or creates a new one if it doesn't exist.
+func loadOrCreateLockFile(cursorDir string) (*LockFile, error) {
 	lock, err := LoadLockFile(cursorDir)
 	if err != nil {
 		// If the lockfile doesn't exist, create a new one
 		if os.IsNotExist(err) {
-			lock = &LockFile{Rules: []RuleSource{}}
-		} else {
-			return fmt.Errorf("failed to load lockfile: %w", err)
+			return &LockFile{Rules: []RuleSource{}}, nil
 		}
+		return nil, fmt.Errorf("failed to load lockfile: %w", err)
 	}
+	return lock, nil
+}
 
-	// Map of existing rule keys for conflict detection
+// buildExistingRuleSet creates a map of existing rule keys for conflict detection.
+func buildExistingRuleSet(lock *LockFile) map[string]bool {
 	existingRules := make(map[string]bool)
 	for _, rule := range lock.Rules {
 		existingRules[rule.Key] = true
 	}
+	return existingRules
+}
+
+// resolveConflict handles rule name conflicts with user input or auto-resolution.
+func resolveConflict(key, autoResolve string) (string, string, error) {
+	action := autoResolve
+	if action == "" {
+		action = promptForConflictResolution(key)
+	}
+
+	switch action {
+	case ActionSkip:
+		fmt.Printf("Skipping rule: %s\n", key)
+		return key, action, ErrSkipRule
+	case ActionOverwrite:
+		return key, action, nil
+	case ActionRename:
+		// The original key is preserved for logging, but a new key will be returned
+		return key, action, nil
+	default:
+		// Default to skip for any other input
+		fmt.Printf("Unknown action '%s', defaulting to skip for rule: %s\n", action, key)
+		return key, ActionSkip, ErrSkipRule
+	}
+}
+
+// promptForConflictResolution asks the user how to resolve a rule conflict.
+func promptForConflictResolution(key string) string {
+	fmt.Printf("Rule '%s' already exists. [s]kip, [o]verwrite, [r]ename? ", key)
+	var input string
+	if _, err := fmt.Scanln(&input); err != nil {
+		// If error reading input, default to skip
+		fmt.Println("Error reading input, defaulting to skip")
+		return ActionSkip
+	}
+
+	input = strings.ToLower(input)
+	switch input {
+	case "s":
+		return ActionSkip
+	case "o":
+		return ActionOverwrite
+	case "r":
+		return ActionRename
+	default:
+		// Default to skip for any other input
+		return ActionSkip
+	}
+}
+
+// processEmbeddedRuleContent handles rules with embedded content.
+func processEmbeddedRuleContent(cursorDir string, sr *ShareableRule, key string) error {
+	if sr.Content == "" || sr.Filename == "" {
+		return nil
+	}
+
+	filename := sr.Filename
+	// If we renamed the rule, adjust the filename to match the new key
+	if key != sr.Key {
+		ext := filepath.Ext(filename)
+		base := filepath.Base(filename)
+		base = strings.TrimSuffix(base, ext)
+		if base == sr.Key {
+			filename = key + ext
+		}
+	}
+
+	localFilePath := filepath.Join(cursorDir, filename)
+
+	// Create parent directories if needed
+	if err := os.MkdirAll(filepath.Dir(localFilePath), 0o755); err != nil {
+		return fmt.Errorf("failed to create directories for embedded file: %w", err)
+	}
+
+	// Write the file
+	if err := os.WriteFile(localFilePath, []byte(sr.Content), 0o600); err != nil {
+		return fmt.Errorf("failed to write embedded rule content: %w", err)
+	}
+
+	// Add the rule as a local reference
+	source := RuleSource{
+		Key:        key,
+		SourceType: SourceTypeLocalRel,
+		Reference:  filename,
+		LocalFiles: []string{filename},
+	}
+
+	// Add to lockfile
+	lock, err := LoadLockFile(cursorDir)
+	if err != nil {
+		return fmt.Errorf("failed to load lock file for adding embedded rule: %w", err)
+	}
+
+	lock.Rules = append(lock.Rules, source)
+	if err := lock.Save(cursorDir); err != nil {
+		return fmt.Errorf("failed to save lock file after adding embedded rule: %w", err)
+	}
+
+	fmt.Printf("Added rule from embedded content: %s\n", key)
+	return nil
+}
+
+// processGitHubRule processes GitHub-based rule references.
+func processGitHubRule(cursorDir string, sr *ShareableRule, key string) error {
+	// For GitHub references, we can use AddRuleByReference
+	// But for renamed rules, we need to manipulate the lockfile directly after
+	err := AddRuleByReferenceFn(cursorDir, sr.Reference)
+	if err != nil {
+		return fmt.Errorf("failed to add rule from GitHub: %w", err)
+	}
+
+	// If we renamed, update the key in the lockfile
+	if key != sr.Key {
+		newLock, err := LoadLockFile(cursorDir)
+		if err != nil {
+			return fmt.Errorf("failed to load lock file for renaming: %w", err)
+		}
+		for i, rule := range newLock.Rules {
+			if rule.Key == sr.Key {
+				newLock.Rules[i].Key = key
+				if err := newLock.Save(cursorDir); err != nil {
+					return fmt.Errorf("failed to save updated lockfile: %w", err)
+				}
+				break
+			}
+		}
+	}
+
+	fmt.Printf("Added rule from GitHub: %s\n", key)
+	return nil
+}
+
+// processBuiltInRule handles built-in template rules.
+func processBuiltInRule(cursorDir string, sr *ShareableRule, key string) error {
+	if err := AddRuleFn(cursorDir, sr.Category, key); err != nil {
+		return fmt.Errorf("failed to add built-in rule: %w", err)
+	}
+	fmt.Printf("Added built-in rule: %s\n", key)
+	return nil
+}
+
+// processLocalRule handles local path rule references.
+func processLocalRule(cursorDir string, sr *ShareableRule) error {
+	// For local paths, use AddRuleByReference if they exist
+	// Skip if we've already handled it with embedded content
+	if sr.Content == "" && fileExists(sr.Reference) {
+		err := AddRuleByReferenceFn(cursorDir, sr.Reference)
+		if err != nil {
+			return fmt.Errorf("failed to add rule from local path: %w", err)
+		}
+	}
+	return nil
+}
+
+// processRule handles a single shareable rule.
+func processRule(cursorDir string, sr ShareableRule, existingRules map[string]bool, autoResolve string) error {
+	// Skip unshareable rules
+	if sr.Unshareable {
+		fmt.Printf("Skipping unshareable rule: %s\n", sr.Key)
+		return nil
+	}
+
+	// Handle conflict resolution if needed
+	key := sr.Key
+	if existingRules[key] {
+		var action string
+		var err error
+		key, action, err = resolveConflict(key, autoResolve)
+		if err == ErrSkipRule {
+			return nil
+		}
+
+		if action == ActionOverwrite {
+			// Remove the existing rule
+			if err := RemoveRule(cursorDir, key); err != nil {
+				return fmt.Errorf("failed to remove existing rule: %w", err)
+			}
+		} else if action == ActionRename {
+			// Generate a new key that doesn't conflict
+			key = findAvailableKey(key, existingRules)
+			fmt.Printf("Renamed to: %s\n", key)
+		}
+	}
+
+	// Process the rule based on its content and source type
+	if sr.Content != "" && sr.Filename != "" {
+		if err := processEmbeddedRuleContent(cursorDir, &sr, key); err != nil {
+			return err
+		}
+	} else {
+		// Handle based on source type
+		switch sr.SourceType {
+		case SourceTypeGitHubFile, SourceTypeGitHubDir:
+			if err := processGitHubRule(cursorDir, &sr, key); err != nil {
+				return err
+			}
+
+		case SourceTypeBuiltIn:
+			if err := processBuiltInRule(cursorDir, &sr, key); err != nil {
+				return err
+			}
+
+		case SourceTypeLocalAbs, SourceTypeLocalRel:
+			if err := processLocalRule(cursorDir, &sr); err != nil {
+				return err
+			}
+
+		default:
+			fmt.Printf("Cannot restore rule with source type %s: %s\n", sr.SourceType, key)
+		}
+	}
+
+	// Mark this key as used for future conflict detection
+	existingRules[key] = true
+	return nil
+}
+
+// ErrSkipRule is returned when a rule should be skipped during restoration.
+var ErrSkipRule = errors.New("rule skipped")
+
+// RestoreFromShared restores rules from a shared file.
+// autoResolve specifies how to handle conflicts: "skip", "overwrite", or "rename".
+func RestoreFromShared(ctx context.Context, cursorDir, sharePath, autoResolve string) error {
+	// Load the shareable data from the provided path
+	shareData, err := loadShareableData(ctx, sharePath)
+	if err != nil {
+		return err
+	}
+
+	// Parse the shareable data into a ShareableLock structure
+	shareable, err := parseShareableLock(shareData)
+	if err != nil {
+		return err
+	}
+
+	// Load existing lockfile or create a new one
+	lock, err := loadOrCreateLockFile(cursorDir)
+	if err != nil {
+		return err
+	}
+
+	// Build a map of existing rule keys for conflict detection
+	existingRules := buildExistingRuleSet(lock)
 
 	// Process each rule in the shareable file
 	for _, sr := range shareable.Rules {
-		// Skip unshareable rules
-		if sr.Unshareable {
-			fmt.Printf("Skipping unshareable rule: %s\n", sr.Key)
-			continue
+		if err := processRule(cursorDir, sr, existingRules, autoResolve); err != nil {
+			return err
 		}
-
-		// Check if this rule already exists
-		key := sr.Key
-		if existingRules[key] {
-			// Determine what to do based on autoResolve
-			action := autoResolve
-			if action == "" {
-				// Ask user what to do
-				fmt.Printf("Rule '%s' already exists. [s]kip, [o]verwrite, [r]ename? ", sr.Key)
-				var input string
-				if _, err := fmt.Scanln(&input); err != nil {
-					// If error reading input, default to skip
-					fmt.Println("Error reading input, defaulting to skip")
-					action = ActionSkip
-				} else {
-					input = strings.ToLower(input)
-					switch input {
-					case "s":
-						action = ActionSkip
-					case "o":
-						action = ActionOverwrite
-					case "r":
-						action = ActionRename
-					default:
-						// Default to skip for any other input
-						action = ActionSkip
-					}
-				}
-			}
-
-			switch action {
-			case ActionSkip:
-				fmt.Printf("Skipping rule: %s\n", sr.Key)
-				continue
-			case ActionOverwrite:
-				// Remove the existing rule
-				if err := RemoveRule(cursorDir, sr.Key); err != nil {
-					return fmt.Errorf("failed to remove existing rule: %w", err)
-				}
-			case ActionRename:
-				// Generate a new key that doesn't conflict
-				key = findAvailableKey(sr.Key, existingRules)
-				fmt.Printf("Renamed to: %s\n", key)
-			}
-		}
-
-		// Process the rule based on its content and source type
-		if sr.Content != "" && sr.Filename != "" {
-			// If it has embedded content, create a local file
-			filename := sr.Filename
-			// If we renamed the rule, adjust the filename to match the new key
-			if key != sr.Key {
-				ext := filepath.Ext(filename)
-				base := filepath.Base(filename)
-				base = strings.TrimSuffix(base, ext)
-				if base == sr.Key {
-					filename = key + ext
-				}
-			}
-
-			localFilePath := filepath.Join(cursorDir, filename)
-
-			// Create parent directories if needed
-			if err := os.MkdirAll(filepath.Dir(localFilePath), 0o755); err != nil {
-				return fmt.Errorf("failed to create directories for embedded file: %w", err)
-			}
-
-			// Write the file
-			if err := os.WriteFile(localFilePath, []byte(sr.Content), 0o600); err != nil {
-				return fmt.Errorf("failed to write embedded rule content: %w", err)
-			}
-
-			// Add the rule as a local reference
-			source := RuleSource{
-				Key:        key,
-				SourceType: SourceTypeLocalRel,
-				Reference:  filename,
-				LocalFiles: []string{filename},
-			}
-
-			// Add to lockfile
-			lock.Rules = append(lock.Rules, source)
-			fmt.Printf("Added rule from embedded content: %s\n", key)
-		} else {
-			// Handle based on source type
-			switch sr.SourceType {
-			case SourceTypeGitHubFile, SourceTypeGitHubDir:
-				// For GitHub references, we can use AddRuleByReference
-				// But for renamed rules, we need to manipulate the lockfile directly after
-				err := AddRuleByReferenceFn(cursorDir, sr.Reference)
-				if err != nil {
-					return fmt.Errorf("failed to add rule from GitHub: %w", err)
-				}
-
-				// If we renamed, update the key in the lockfile
-				if key != sr.Key {
-					newLock, err := LoadLockFile(cursorDir)
-					if err != nil {
-						return fmt.Errorf("failed to load lock file for renaming: %w", err)
-					}
-					for i, rule := range newLock.Rules {
-						if rule.Key == sr.Key {
-							newLock.Rules[i].Key = key
-							if err := newLock.Save(cursorDir); err != nil {
-								return fmt.Errorf("failed to save updated lockfile: %w", err)
-							}
-							break
-						}
-					}
-				}
-
-				fmt.Printf("Added rule from GitHub: %s\n", key)
-
-			case SourceTypeBuiltIn:
-				// For built-in templates, we can use the new key directly with AddRule
-				if err := AddRuleFn(cursorDir, sr.Category, key); err != nil {
-					return fmt.Errorf("failed to add built-in rule: %w", err)
-				}
-				fmt.Printf("Added built-in rule: %s\n", key)
-
-			case SourceTypeLocalAbs, SourceTypeLocalRel:
-				// For local paths, use AddRuleByReference if they exist
-				// Otherwise skip - we've already handled it with embedded content
-				if sr.Content == "" && fileExists(sr.Reference) {
-					err := AddRuleByReferenceFn(cursorDir, sr.Reference)
-					if err != nil {
-						return fmt.Errorf("failed to add rule from local path: %w", err)
-					}
-				}
-
-			default:
-				fmt.Printf("Cannot restore rule with source type %s: %s\n", sr.SourceType, key)
-			}
-		}
-
-		// Mark this key as used for future conflict detection
-		existingRules[key] = true
 	}
 
 	return nil

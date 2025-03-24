@@ -452,3 +452,229 @@ WHAT WAS DONE:
 MEMO:
 
 Adding HTTP context support makes the code more robust by allowing for proper timeout and cancellation handling in network requests. The error wrapping improvements make debugging easier by providing more context about where and why errors occurred. These changes follow Go best practices for error handling and network operations.
+
+## TS: 2025-03-24 05:50:35 CET
+
+## PROBLEM: Code quality issues in Go codebase flagged by golangci-lint
+
+WHAT WAS DONE:
+
+- Updated file permission constants to use modern octal syntax (0o600 instead of 0644)
+- Fixed file permission constants in test files (0o755 and 0o644)
+- Converted if-else chains to switch statements for better readability:
+  - Fixed if-else chains in pkg/manager/manager.go
+  - Fixed if-else chains in pkg/templates/templates.go
+- Added proper error handling for ignored errors:
+  - Fixed error handling in pkg/templates/custom.go for ReadString calls
+  - Fixed error handling in pkg/manager/manager.go for LoadLockFile calls
+- Replaced deprecated strings.Title with a custom implementation using unicode.ToTitle
+
+---
+
+MEMO:
+
+Go 1.13+ recommends using the 0o prefix for octal literals. The switch statements improve code readability and maintainability. Proper error handling is essential for production-quality code. Using unicode.ToTitle instead of the deprecated strings.Title ensures better compatibility with future Go versions.
+
+## TS: 2025-03-24 06:27:56 CET
+
+## PROBLEM: Need a strategic approach for remaining linter issues
+
+WHAT WAS DONE:
+
+- Successfully fixed high-priority linting issues:
+  - Added context to HTTP requests (noctx issues)
+  - Properly wrapped error returns (wrapcheck issues)
+  - Fixed long lines (lll issues)
+- Created detailed task file (.tasks/task-resolve-linting-issues.md)
+- Documented remaining issues and their complexity
+- Prioritized remaining work for future PRs
+
+---
+
+MEMO:
+
+The remaining linting issues (cognitive complexity, nested blocks, long functions) require more extensive refactoring that should be approached with caution. The recommended strategy is to:
+
+1. Address each major function in a separate, focused PR
+2. Start with extract method refactoring for clear sub-tasks
+3. Add tests before refactoring to ensure behavior doesn't change
+4. Apply consistent patterns across the codebase
+
+This phased approach minimizes risk while steadily improving code quality.
+
+## TS: 2025-03-24 06:27:30 CET
+
+## PROBLEM: Long lines detected by linter
+
+WHAT WAS DONE:
+
+- Fixed long lines (lll) issues in main.go
+- Split flag descriptions across multiple lines using string concatenation
+- Improved code readability by breaking long parameter descriptions
+
+---
+
+MEMO:
+
+Addressing line length issues improves code readability and maintainability. While these issues are relatively minor compared to the context and error handling fixes, they're part of keeping a consistent, clean codebase that follows standard Go conventions.
+
+## TS: 2025-03-24 06:40:30 CET
+
+## PROBLEM: Need to reduce code complexity flagged by golangci-lint
+
+WHAT WAS DONE:
+
+- Created task-refactor-complexity.md with detailed implementation plan
+- Prioritized functions for refactoring based on complexity scores:
+  1. main() in cmd/cursor-rules/main.go (complexity: 138)
+  2. RestoreFromShared() in pkg/manager/manager.go (complexity: 98)
+  3. UpgradeRule() in pkg/manager/manager.go (complexity: 67)
+- Developed refactoring approach using:
+  - Guard clauses to flatten nested conditionals
+  - Helper function extraction to reduce complexity
+  - Subcommand separation in CLI code
+
+---
+
+MEMO:
+
+The code complexity is hindering maintainability and making changes risky. The implementation will follow best practices like:
+
+- Making incremental changes that can be tested independently
+- Keeping function responsibilities clear and focused
+- Using descriptive naming for extracted functions
+- Adding appropriate comments for new functions
+
+Each major function will be refactored separately to minimize risk while steadily improving code quality.
+
+## TS: 2025-03-24 06:46:43 CET
+
+## PROBLEM: High cognitive complexity in main() function (complexity: 138) flagged by golangci-lint
+
+WHAT WAS DONE: Refactored main.go to use dedicated command handler functions and guard clauses, reducing complexity:
+
+1. Added type definitions for command flags and flag sets
+2. Extracted flag definitions into separate function
+3. Extracted environment initialization into dedicated function
+4. Created specific handler functions for each subcommand
+5. Implemented early returns and guard clauses to flatten control flow
+6. Improved error handling with proper error wrapping
+
+---
+
+MEMO: This refactoring is part of a larger effort to reduce code complexity as documented in tasks/task-refactor-complexity.md. Key benefits:
+
+- Reduced cognitive complexity of main() function
+- Improved maintainability with single-responsibility functions
+- Better error handling with proper context
+- More readable command processing with dedicated handlers
+- Easier to add new commands in the future
+
+The next functions to refactor are RestoreFromShared() and UpgradeRule() in pkg/manager/manager.go.
+
+## TS: 2025-03-24 06:53:37 CET
+
+## PROBLEM: Need to verify the main.go refactoring fixed linting issues and preserved functionality
+
+WHAT WAS DONE: Tested the refactored main.go:
+
+1. Ran linter checks on the refactored code: `golangci-lint run ./cmd/cursor-rules/main.go`
+2. Built the binary: `go build -o bin/cursor-rules ./cmd/cursor-rules`
+3. Tested basic functionality: `./bin/cursor-rules --version` and `./bin/cursor-rules list`
+
+Results:
+
+- **Success**: Main function no longer appears in cognitive complexity warnings
+- **Success**: Binary builds successfully without errors
+- **Success**: Basic functionality works correctly
+- **Remaining issue**: setupProject function still has high cognitive complexity (29 > 20)
+- **Remaining issue**: Some nestif issues in the package.json processing code
+
+---
+
+MEMO: The main function refactoring was successful, significantly reducing its cognitive complexity. The original complexity was 138, and it's now below the threshold of 20 since it doesn't appear in the linter warnings.
+
+Next refactoring steps:
+
+1. Fix the setupProject function which still has high cognitive complexity (29)
+2. Address nested if blocks in the package.json processing code
+3. Continue with the planned refactoring of RestoreFromShared() and UpgradeRule() in manager.go
+
+## TS: 2025-03-24 06:57:30 CET
+
+## PROBLEM: High cognitive complexity in RestoreFromShared() and UpgradeRule() functions
+
+WHAT WAS DONE:
+
+- Refactored RestoreFromShared() function:
+  - Extracted loadShareableData() and loadShareableFromURL() for data loading
+  - Created parseShareableLock() for JSON parsing and validation
+  - Extracted buildExistingRuleSet() for conflict detection
+  - Added resolveConflict() and promptForConflictResolution() for conflict handling
+  - Created separate processing functions for each rule type
+- Refactored UpgradeRule() function:
+  - Extracted findRuleToUpgrade() to locate rules in the lockfile
+  - Created upgradeBuiltInRule() for template-based rules
+  - Added checkLocalModifications() and promptForLocalModifications() for change detection
+  - Extracted type-specific upgrade handlers like upgradeGitHubBranchRule()
+  - Improved error handling and added guard clauses
+
+---
+
+MEMO: This refactoring significantly reduces the cognitive complexity of these core functions, breaking them down into smaller, more focused helper functions. Each extracted function has a clear responsibility and meaningful name, making the code easier to understand and maintain. The refactoring preserves the original functionality while improving error handling and reducing nesting depth. By using guard clauses and early returns, the control flow is now flatter and easier to follow. These changes should help address both the cognitive complexity (gocognit) and nested if (nestif) linter issues.
+
+## TS: 2025-03-24 06:59:00 CET
+
+## PROBLEM: Task file for refactoring RestoreFromShared() and UpgradeRule() is in the wrong location
+
+WHAT WAS DONE:
+
+- Moved tasks/task-refactor-manager-complexity.md to go-claude/.tasks/ directory
+- Maintained file structure and content without changes
+- Kept the original refactoring plan detailed in the file
+
+---
+
+MEMO: Task files for the go-claude project should be stored in the go-claude/.tasks directory rather than the top-level tasks directory. This ensures that refactoring plans and documentation are properly organized within the monorepo structure, keeping each project's tasks separate and organized.
+
+## TS: 2025-03-24 07:03:44 CET
+
+## PROBLEM: Verification of refactoring progress for RestoreFromShared() and UpgradeRule() functions
+
+WHAT WAS DONE:
+
+- Run linter checks on the refactored code with `golangci-lint run --disable-all --enable gocognit,nestif`
+- Verified that RestoreFromShared() no longer appears in cognitive complexity warnings
+- Verified that UpgradeRule() no longer appears in cognitive complexity warnings
+- Fixed additional issues identified during testing:
+  - Added periods to all function documentation comments
+  - Fixed parameter types per Go best practices (combined parameters of the same type)
+  - Improved error handling in the upgradeGitHubBranchRule() function
+  - Added loadOrCreateLockFile() function to simplify lockfile initialization
+
+---
+
+MEMO: The refactoring has successfully reduced the cognitive complexity of both target functions below the warning threshold (20). The extracted helper functions follow a consistent pattern and have clear responsibilities, making the code more maintainable. There are still some remaining complexity issues in other functions (LoadLockFile, RemoveRule, ShareRules, and processRule) which should be addressed in future refactoring iterations. The nestif issues have also been reduced significantly. This shows that our approach of extracting focused helper functions and using guard clauses is effective and should be continued for the remaining complex functions.
+
+## TS: 2025-03-24 07:05:03 CET
+
+## PROBLEM: Completed refactoring of high complexity functions in manager.go
+
+WHAT WAS DONE:
+
+- Successfully refactored RestoreFromShared() and UpgradeRule() functions:
+  - Extracted 15+ focused helper functions with clear responsibilities
+  - Significantly reduced cognitive complexity below warning thresholds
+  - Fixed several related issues (comments, parameter types, error handling)
+  - Improved code organization with logical grouping of related functionality
+- Verified functionality with build and tests:
+  - Confirmed binary builds successfully
+  - Tested share and restore functionality
+  - Verified restored rules work as expected
+- Updated task documentation:
+  - Marked completed tasks in .tasks/task-refactor-manager-complexity.md
+  - Identified additional functions that need refactoring in future PRs
+
+---
+
+MEMO: This refactoring demonstrates the effectiveness of our strategy to break down complex functions into smaller helper functions with single responsibilities. The approach of using guard clauses and early returns has successfully flattened nested conditionals and improved readability. The next priority functions for refactoring are LoadLockFile (complexity: 42), ShareRules (complexity: 33), RemoveRule (complexity: 31), and processRule (complexity: 22). We've established a solid pattern that can be applied to these remaining functions.
