@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,21 +16,20 @@ import (
 	"github.com/fireharp/cursor-rules/pkg/templates"
 )
 
-// LockFileName is the file that tracks installed rules (similar to a package-lock.json)
+// LockFileName is the file that tracks installed rules (similar to a package-lock.json).
 const LockFileName = "cursor-rules.lock"
 
-// UseRootLockFile is a flag to indicate whether to use the lockfile in the project root
-// This can be set through an environment variable or config file
+// This can be set through an environment variable or config file.
 var UseRootLockFile = false
 
-// getRootDirectory returns the project root directory from the cursor rules directory
+// getRootDirectory returns the project root directory from the cursor rules directory.
 func getRootDirectory(cursorDir string) string {
 	// cursorDir is typically /path/to/project/.cursor/rules
 	// We need to go up two levels to get the project root
 	return filepath.Dir(filepath.Dir(cursorDir))
 }
 
-// getLockFilePath returns the path to the lockfile based on the UseRootLockFile setting
+// getLockFilePath returns the path to the lockfile based on the UseRootLockFile setting.
 func getLockFilePath(cursorDir string) string {
 	if UseRootLockFile {
 		rootDir := getRootDirectory(cursorDir)
@@ -38,10 +38,10 @@ func getLockFilePath(cursorDir string) string {
 	return filepath.Join(cursorDir, LockFileName)
 }
 
-// SourceType represents the type of rule source
+// SourceType represents the type of rule source.
 type SourceType string
 
-// Source types for rules
+// Source types for rules.
 const (
 	SourceTypeBuiltIn    SourceType = "built-in"
 	SourceTypeLocalAbs   SourceType = "local-abs"
@@ -50,7 +50,14 @@ const (
 	SourceTypeGitHubDir  SourceType = "github-dir"
 )
 
-// RuleSource represents a source for a rule file
+// Action constants for conflict resolution.
+const (
+	ActionSkip      = "skip"
+	ActionOverwrite = "overwrite"
+	ActionRename    = "rename"
+)
+
+// RuleSource represents a source for a rule file.
 type RuleSource struct {
 	// The short "rule key" used in local .cursor/rules filenames
 	Key string `json:"key"`
@@ -179,16 +186,14 @@ func (lock *LockFile) Save(cursorDir string) error {
 	}
 
 	// Ensure directory exists for the lockfile
-	if UseRootLockFile {
-		// For root lockfile, the directory should already exist
-	} else {
+	if !UseRootLockFile {
 		// For .cursor/rules lockfile, make sure the directory exists
-		if err := os.MkdirAll(cursorDir, 0755); err != nil {
+		if err := os.MkdirAll(cursorDir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory for lockfile: %w", err)
 		}
 	}
 
-	if err := os.WriteFile(lockFilePath, data, 0644); err != nil {
+	if err := os.WriteFile(lockFilePath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write lockfile: %w", err)
 	}
 
@@ -209,7 +214,8 @@ func SetLockFileLocation(cursorDir string, useRoot bool) (string, error) {
 	// Determine which one to use
 	var lock *LockFile
 
-	if errCursor == nil && errRoot == nil {
+	switch {
+	case errCursor == nil && errRoot == nil:
 		// Both exist, merge them
 		for _, rule := range lockFromRoot.Rules {
 			if !containsRule(lockFromCursor.Rules, rule.Key) {
@@ -217,11 +223,11 @@ func SetLockFileLocation(cursorDir string, useRoot bool) (string, error) {
 			}
 		}
 		lock = lockFromCursor
-	} else if errCursor == nil {
+	case errCursor == nil:
 		lock = lockFromCursor
-	} else if errRoot == nil {
+	case errRoot == nil:
 		lock = lockFromRoot
-	} else if errCursor != nil && errRoot != nil {
+	default:
 		// Neither exists, create a new one
 		lock = &LockFile{Rules: []RuleSource{}}
 	}
@@ -253,7 +259,7 @@ func SetLockFileLocation(cursorDir string, useRoot bool) (string, error) {
 	return getLockFilePath(cursorDir), nil
 }
 
-// Helper function to check if a rule key exists in a slice of RuleSources
+// Helper function to check if a rule key exists in a slice of RuleSources.
 func containsRule(rules []RuleSource, key string) bool {
 	for _, rule := range rules {
 		if rule.Key == key {
@@ -282,33 +288,33 @@ func (lock *LockFile) IsInstalled(ruleKey string) bool {
 	return false
 }
 
-// isAbsolutePath checks if a path is absolute
+// isAbsolutePath checks if a path is absolute.
 func isAbsolutePath(path string) bool {
 	return filepath.IsAbs(path)
 }
 
-// isRelativePath checks if a path is relative
+// isRelativePath checks if a path is relative.
 func isRelativePath(path string) bool {
 	return strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../")
 }
 
-// Pattern for GitHub blob URLs
+// Pattern for GitHub blob URLs.
 var githubBlobPattern = regexp.MustCompile(`^https://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$`)
 
-// Pattern for GitHub tree URLs
+// Pattern for GitHub tree URLs.
 var githubTreePattern = regexp.MustCompile(`^https://github\.com/([^/]+)/([^/]+)/tree/([^/]+)/(.+)$`)
 
-// isGitHubBlobURL checks if a URL is a GitHub blob URL
+// isGitHubBlobURL checks if a URL is a GitHub blob URL.
 func isGitHubBlobURL(ref string) bool {
 	return githubBlobPattern.MatchString(ref)
 }
 
-// isGitHubTreeURL checks if a URL is a GitHub tree URL
+// isGitHubTreeURL checks if a URL is a GitHub tree URL.
 func isGitHubTreeURL(ref string) bool {
 	return githubTreePattern.MatchString(ref)
 }
 
-// generateRuleKey creates a unique key from a reference
+// generateRuleKey creates a unique key from a reference.
 func generateRuleKey(ref string) string {
 	// For GitHub URLs, use the filename without extension
 	if isGitHubBlobURL(ref) {
@@ -330,18 +336,16 @@ func generateRuleKey(ref string) string {
 	return ref
 }
 
-// AddRuleByReferenceFunc is the function type for AddRuleByReference, used for testing
+// AddRuleByReferenceFunc is the function type for AddRuleByReference, used for testing.
 type AddRuleByReferenceFunc func(cursorDir, ref string) error
 
-// AddRuleFunc is the function type for AddRule, used for testing
+// AddRuleFunc is the function type for AddRule, used for testing.
 type AddRuleFunc func(cursorDir, category, ruleKey string) error
 
-// AddRuleByReferenceFn is a variable holding the AddRuleByReference implementation
-// This allows tests to replace the implementation temporarily
+// This allows tests to replace the implementation temporarily.
 var AddRuleByReferenceFn AddRuleByReferenceFunc = addRuleByReferenceImpl
 
-// AddRuleFn is a variable holding the AddRule implementation
-// This allows tests to replace the implementation temporarily
+// This allows tests to replace the implementation temporarily.
 var AddRuleFn AddRuleFunc = addRuleImpl
 
 // AddRuleByReference adds a rule from a reference (local path, GitHub URL, etc.)
@@ -349,7 +353,7 @@ func AddRuleByReference(cursorDir, ref string) error {
 	return AddRuleByReferenceFn(cursorDir, ref)
 }
 
-// handleLocalFile copies a local .mdc file to .cursor/rules
+// handleLocalFile copies a local .mdc file to .cursor/rules.
 func handleLocalFile(cursorDir, ref string, isAbs bool) (RuleSource, error) {
 	// 1. Validate path and ensure it's readable
 	var fullPath string
@@ -385,7 +389,7 @@ func handleLocalFile(cursorDir, ref string, isAbs bool) (RuleSource, error) {
 	destPath := filepath.Join(cursorDir, destFilename)
 
 	// 4. Write to .cursor/rules
-	err = os.WriteFile(destPath, data, 0644)
+	err = os.WriteFile(destPath, data, 0o600)
 	if err != nil {
 		return RuleSource{}, fmt.Errorf("failed to write to %s: %w", destPath, err)
 	}
@@ -404,7 +408,7 @@ func handleLocalFile(cursorDir, ref string, isAbs bool) (RuleSource, error) {
 	}, nil
 }
 
-// handleGitHubBlob downloads a single file from GitHub
+// handleGitHubBlob downloads a single file from GitHub.
 func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
 	// 1. Parse the GitHub URL
 	matches := githubBlobPattern.FindStringSubmatch(ref)
@@ -460,7 +464,7 @@ func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
 	destPath := filepath.Join(cursorDir, destFilename)
 
 	// 7. Write to .cursor/rules
-	err = os.WriteFile(destPath, data, 0644)
+	err = os.WriteFile(destPath, data, 0o600)
 	if err != nil {
 		return RuleSource{}, fmt.Errorf("failed to write to %s: %w", destPath, err)
 	}
@@ -477,7 +481,7 @@ func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
 	}, nil
 }
 
-// isGitCommitHash checks if a string looks like a Git commit hash
+// isGitCommitHash checks if a string looks like a Git commit hash.
 func isGitCommitHash(s string) bool {
 	// Git commit hashes are typically 40 characters (full) or 7+ characters (short)
 	// and only contain hexadecimal characters (0-9, a-f)
@@ -492,12 +496,12 @@ func isGitCommitHash(s string) bool {
 	return true
 }
 
-// getHeadCommitForBranch fetches the HEAD commit for a given branch using GitHub API
+// getHeadCommitForBranch fetches the HEAD commit for a given branch using GitHub API.
 func getHeadCommitForBranch(owner, repo, branch string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, branch)
 
 	// Create a request with User-Agent header (required by GitHub API)
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for GitHub API: %w", err)
 	}
@@ -529,25 +533,24 @@ func getHeadCommitForBranch(owner, repo, branch string) (string, error) {
 	return data.Commit.SHA, nil
 }
 
-// handleGitHubDir is a placeholder for downloading multiple files from GitHub dir
-// In a real implementation, this would use the GitHub API to list files in the directory
-func handleGitHubDir(cursorDir, ref string) (RuleSource, error) {
+// In a real implementation, this would use the GitHub API to list files in the directory.
+func handleGitHubDir(_, _ string) (RuleSource, error) {
 	// This is a simplified version; in reality would need to:
 	// 1. Use GitHub API to list all .mdc files in the directory
 	// 2. Download each file
 	// 3. Store all files in the LocalFiles field
 
-	return RuleSource{}, fmt.Errorf("GitHub directory references not yet implemented")
+	return RuleSource{}, errors.New("GitHub directory references not yet implemented")
 }
 
 // AddRule installs the rule with the given key from a specified category into .cursor/rules.
 // It also updates the lockfile to track what is installed.
-func AddRule(cursorDir string, category string, ruleKey string) error {
+func AddRule(cursorDir, category, ruleKey string) error {
 	return AddRuleFn(cursorDir, category, ruleKey)
 }
 
-// addRuleImpl is the actual implementation of AddRule
-func addRuleImpl(cursorDir string, category string, ruleKey string) error {
+// addRuleImpl is the actual implementation of AddRule.
+func addRuleImpl(cursorDir, category, ruleKey string) error {
 	// 1. Find the template in the global templates map
 	cat, ok := templates.Categories[category]
 	if !ok {
@@ -598,7 +601,7 @@ func addRuleImpl(cursorDir string, category string, ruleKey string) error {
 	return nil
 }
 
-// addRuleByReferenceImpl is the actual implementation of AddRuleByReference
+// addRuleByReferenceImpl is the actual implementation of AddRuleByReference.
 func addRuleByReferenceImpl(cursorDir, ref string) error {
 	// 1. Load the lockfile
 	lock, err := LoadLockFile(cursorDir)
@@ -800,9 +803,12 @@ func UpgradeRule(cursorDir string, ruleKey string) error {
 						fmt.Printf("Warning: Local file %s has been modified since installation.\n", ruleToUpgrade.LocalFiles[0])
 						fmt.Print("Do you want to proceed and overwrite your local changes? (y/N): ")
 						var answer string
-						fmt.Scanln(&answer)
-						if !(strings.ToLower(answer) == "y" || strings.ToLower(answer) == "yes") {
-							return fmt.Errorf("upgrade cancelled to preserve local changes")
+						if _, err := fmt.Scanln(&answer); err != nil {
+							// If error reading input (e.g., empty line), treat as "no"
+							return errors.New("upgrade cancelled to preserve local changes")
+						}
+						if !(strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")) {
+							return errors.New("upgrade cancelled to preserve local changes")
 						}
 					}
 				}
@@ -831,16 +837,20 @@ func UpgradeRule(cursorDir string, ruleKey string) error {
 			}
 
 			return nil
-		} else {
-			// For pinned commits, we would normally not update (it's pinned)
-			// But we'll re-download the file in case something went wrong
-			fmt.Printf("Rule %q is pinned to commit %s\n", ruleKey, shortCommit(gitRef))
-			fmt.Print("Do you want to re-download this pinned version? (y/N): ")
-			var answer string
-			fmt.Scanln(&answer)
-			if !(strings.ToLower(answer) == "y" || strings.ToLower(answer) == "yes") {
-				return nil
-			}
+		}
+
+		// For pinned commits, we would normally not update (it's pinned)
+		// But we'll re-download the file in case something went wrong
+		fmt.Printf("Rule %q is pinned to commit %s\n", ruleKey, shortCommit(gitRef))
+		fmt.Print("Do you want to re-download this pinned version? (y/N): ")
+		var answer string
+		if _, err := fmt.Scanln(&answer); err != nil {
+			// If error reading input (e.g., empty line), treat as "no"
+			fmt.Println("No input provided, skipping re-download")
+			return errors.New("upgrade skipped: no input provided")
+		}
+		if !(strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")) {
+			return nil
 		}
 
 		// Re-download the file
@@ -868,7 +878,7 @@ func UpgradeRule(cursorDir string, ruleKey string) error {
 	return nil
 }
 
-// shortCommit returns the first 7 characters of a commit hash
+// shortCommit returns the first 7 characters of a commit hash.
 func shortCommit(commit string) string {
 	if len(commit) <= 7 {
 		return commit
@@ -896,7 +906,7 @@ func ListInstalledRules(cursorDir string) ([]string, error) {
 	return lock.Installed, nil
 }
 
-// GetInstalledRules returns the full RuleSource structs for all installed rules
+// GetInstalledRules returns the full RuleSource structs for all installed rules.
 func GetInstalledRules(cursorDir string) ([]RuleSource, error) {
 	lock, err := LoadLockFile(cursorDir)
 	if err != nil {
@@ -968,19 +978,19 @@ func SyncLocalRules(cursorDir string) error {
 	return lock.Save(cursorDir)
 }
 
-// Helper function to check if file exists
+// Helper function to check if file exists.
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-// calculateSHA256 calculates the SHA256 hash of the content of a file or byte slice
+// calculateSHA256 calculates the SHA256 hash of the content of a file or byte slice.
 func calculateSHA256(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
 }
 
-// fileContentSHA256 calculates the SHA256 hash of a file's content
+// fileContentSHA256 calculates the SHA256 hash of a file's content.
 func fileContentSHA256(filePath string) (string, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -989,8 +999,7 @@ func fileContentSHA256(filePath string) (string, error) {
 	return calculateSHA256(data), nil
 }
 
-// ShareableRule represents a rule that can be shared with others
-// It omits personal data like local file paths
+// It omits personal data like local file paths.
 type ShareableRule struct {
 	// The short "rule key" used in local .cursor/rules filenames
 	Key string `json:"key"`
@@ -1018,7 +1027,7 @@ type ShareableRule struct {
 	Filename string `json:"filename,omitempty"`
 }
 
-// ShareableLock represents the structure of the shareable lockfile
+// ShareableLock represents the structure of the shareable lockfile.
 type ShareableLock struct {
 	// Version of the shareable file format
 	FormatVersion int `json:"formatVersion"`
@@ -1027,8 +1036,7 @@ type ShareableLock struct {
 	Rules []ShareableRule `json:"rules"`
 }
 
-// ShareRules creates a shareable file from the current lockfile
-// The shareable file excludes personal data like local paths
+// The shareable file excludes personal data like local paths.
 func ShareRules(cursorDir string, shareFilePath string, embedContent bool) error {
 	lock, err := LoadLockFile(cursorDir)
 	if err != nil {
@@ -1100,7 +1108,7 @@ func ShareRules(cursorDir string, shareFilePath string, embedContent bool) error
 		return fmt.Errorf("failed to create shareable file: %w", err)
 	}
 
-	err = os.WriteFile(shareFilePath, data, 0644)
+	err = os.WriteFile(shareFilePath, data, 0o600)
 	if err != nil {
 		return fmt.Errorf("failed to write shareable file: %w", err)
 	}
@@ -1108,8 +1116,7 @@ func ShareRules(cursorDir string, shareFilePath string, embedContent bool) error
 	return nil
 }
 
-// Shareable represents the structure of a shareable rules file
-// This is being kept for backward compatibility but is no longer used
+// This is being kept for backward compatibility but is no longer used.
 type Shareable struct {
 	GitHub      []string            `json:"github"`
 	BuiltIn     map[string][]string `json:"builtIn"`
@@ -1117,7 +1124,7 @@ type Shareable struct {
 	Embedded    map[string]string   `json:"embedded"`
 }
 
-// findAvailableKey generates a new key that doesn't conflict with existing rules
+// findAvailableKey generates a new key that doesn't conflict with existing rules.
 func findAvailableKey(baseKey string, existingRules map[string]bool) string {
 	newKey := baseKey + "-2"
 	counter := 2
@@ -1128,8 +1135,7 @@ func findAvailableKey(baseKey string, existingRules map[string]bool) string {
 	return newKey
 }
 
-// RestoreFromShared restores rules from a shareable file
-// autoResolve specifies how to handle conflicts: "skip", "overwrite", or "rename"
+// autoResolve specifies how to handle conflicts: "skip", "overwrite", or "rename".
 func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 	var shareData []byte
 	var err error
@@ -1139,7 +1145,7 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 		// Download the file from the URL
 		resp, err := http.Get(sharePath)
 		if err != nil {
-			return fmt.Errorf("failed to download shareable file from URL: %v", err)
+			return fmt.Errorf("failed to download shareable file from URL: %w", err)
 		}
 		defer resp.Body.Close()
 
@@ -1151,13 +1157,13 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 		// Read the response body
 		shareData, err = io.ReadAll(resp.Body)
 		if err != nil {
-			return fmt.Errorf("failed to read shareable file from URL: %v", err)
+			return fmt.Errorf("failed to read shareable file from URL: %w", err)
 		}
 	} else {
 		// Load the rules from a local file
 		shareData, err = os.ReadFile(sharePath)
 		if err != nil {
-			return fmt.Errorf("failed to read shareable file: %v", err)
+			return fmt.Errorf("failed to read shareable file: %w", err)
 		}
 	}
 
@@ -1206,30 +1212,36 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 				// Ask user what to do
 				fmt.Printf("Rule '%s' already exists. [s]kip, [o]verwrite, [r]ename? ", sr.Key)
 				var input string
-				fmt.Scanln(&input)
-				input = strings.ToLower(input)
-				if input == "s" {
-					action = "skip"
-				} else if input == "o" {
-					action = "overwrite"
-				} else if input == "r" {
-					action = "rename"
+				if _, err := fmt.Scanln(&input); err != nil {
+					// If error reading input, default to skip
+					fmt.Println("Error reading input, defaulting to skip")
+					action = ActionSkip
 				} else {
-					fmt.Println("Invalid choice, skipping...")
-					action = "skip"
+					input = strings.ToLower(input)
+					switch input {
+					case "s":
+						action = ActionSkip
+					case "o":
+						action = ActionOverwrite
+					case "r":
+						action = ActionRename
+					default:
+						// Default to skip for any other input
+						action = ActionSkip
+					}
 				}
 			}
 
 			switch action {
-			case "skip":
+			case ActionSkip:
 				fmt.Printf("Skipping rule: %s\n", sr.Key)
 				continue
-			case "overwrite":
+			case ActionOverwrite:
 				// Remove the existing rule
 				if err := RemoveRule(cursorDir, sr.Key); err != nil {
 					return fmt.Errorf("failed to remove existing rule: %w", err)
 				}
-			case "rename":
+			case ActionRename:
 				// Generate a new key that doesn't conflict
 				key = findAvailableKey(sr.Key, existingRules)
 				fmt.Printf("Renamed to: %s\n", key)
@@ -1253,12 +1265,12 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 			localFilePath := filepath.Join(cursorDir, filename)
 
 			// Create parent directories if needed
-			if err := os.MkdirAll(filepath.Dir(localFilePath), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(localFilePath), 0o755); err != nil {
 				return fmt.Errorf("failed to create directories for embedded file: %w", err)
 			}
 
 			// Write the file
-			if err := os.WriteFile(localFilePath, []byte(sr.Content), 0644); err != nil {
+			if err := os.WriteFile(localFilePath, []byte(sr.Content), 0o600); err != nil {
 				return fmt.Errorf("failed to write embedded rule content: %w", err)
 			}
 
@@ -1286,11 +1298,16 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 
 				// If we renamed, update the key in the lockfile
 				if key != sr.Key {
-					newLock, _ := LoadLockFile(cursorDir)
+					newLock, err := LoadLockFile(cursorDir)
+					if err != nil {
+						return fmt.Errorf("failed to load lock file for renaming: %w", err)
+					}
 					for i, rule := range newLock.Rules {
 						if rule.Key == sr.Key {
 							newLock.Rules[i].Key = key
-							newLock.Save(cursorDir)
+							if err := newLock.Save(cursorDir); err != nil {
+								return fmt.Errorf("failed to save updated lockfile: %w", err)
+							}
 							break
 						}
 					}
@@ -1304,6 +1321,16 @@ func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
 					return fmt.Errorf("failed to add built-in rule: %w", err)
 				}
 				fmt.Printf("Added built-in rule: %s\n", key)
+
+			case SourceTypeLocalAbs, SourceTypeLocalRel:
+				// For local paths, use AddRuleByReference if they exist
+				// Otherwise skip - we've already handled it with embedded content
+				if sr.Content == "" && fileExists(sr.Reference) {
+					err := AddRuleByReferenceFn(cursorDir, sr.Reference)
+					if err != nil {
+						return fmt.Errorf("failed to add rule from local path: %w", err)
+					}
+				}
 
 			default:
 				fmt.Printf("Cannot restore rule with source type %s: %s\n", sr.SourceType, key)

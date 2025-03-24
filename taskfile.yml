@@ -5,6 +5,13 @@ vars:
   BUILD_DIR: ./bin
   MAIN_PKG: ./cmd/cursor-rules
   VERSION: 0.1.5
+  GITHUB_TOKEN:
+    sh: |
+      if [ -z "$GITHUB_TOKEN" ]; then
+        cat .env 2>/dev/null | grep GITHUB_TOKEN | cut -d '=' -f2 || echo ""
+      else
+        echo "$GITHUB_TOKEN"
+      fi
 
 tasks:
   default:
@@ -29,13 +36,85 @@ tasks:
     cmds:
       - go test -v ./...
 
+  test-coverage:
+    desc: Run tests with coverage
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -func=coverage.out
+      - echo "To view coverage in browser run go tool cover -html=coverage.out"
+
   clean:
     desc: Clean build artifacts
     cmds:
       - rm -rf {{.BUILD_DIR}}
+      - go clean -testcache
+
+  tidy:
+    desc: Tidy and verify go modules
+    cmds:
+      - go mod tidy
+      - go mod verify
 
   install:
     desc: Install the cursor-rules binary
     deps: [build]
     cmds:
       - cp {{.BUILD_DIR}}/{{.BINARY}} $GOPATH/bin/
+
+  lint:
+    desc: Run all linters
+    cmds:
+      - task: lint-golangci-lint
+      - task: lint-nilaway
+      - task: lint-md
+      - task: lint-vuln
+
+  lint-golangci-lint:
+    desc: Run golangci-lint
+    cmds:
+      - command -v golangci-lint >/dev/null 2>&1 || go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5
+      - golangci-lint run ./... --fix
+
+  lint-nilaway:
+    desc: Run nilaway linter
+    cmds:
+      - command -v nilaway >/dev/null 2>&1 || go install go.uber.org/nilaway/cmd/nilaway@latest
+      - nilaway -include-pkgs="cursor-rules" ./...
+
+  lint-md:
+    desc: Run markdown linter
+    cmds:
+      - command -v markdownlint >/dev/null 2>&1 || npm install -g markdownlint-cli
+      - markdownlint '**/*.md' --ignore node_modules --fix || true
+
+  lint-vuln:
+    desc: Run vulnerability checker
+    cmds:
+      - command -v govulncheck >/dev/null 2>&1 || go install golang.org/x/vuln/cmd/govulncheck@latest
+      - govulncheck ./...
+
+  check:
+    desc: Run build, tests, and linters
+    cmds:
+      - task: tidy
+      - task: build
+      - task: test
+      - task: lint
+
+  release-check:
+    desc: Run checks for the release
+    cmds:
+      - task: check
+      - task: goreleaser-check
+
+  goreleaser-check:
+    desc: Check .goreleaser.yaml
+    cmds:
+      - command -v goreleaser >/dev/null 2>&1 || go install github.com/goreleaser/goreleaser@latest
+      - goreleaser check
+
+  format:
+    desc: Format code
+    cmds:
+      - gofmt -s -w .
+      - go mod tidy

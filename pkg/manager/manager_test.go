@@ -12,7 +12,7 @@ import (
 	"github.com/fireharp/cursor-rules/pkg/templates"
 )
 
-// setupTestDir creates a temporary directory for testing
+// setupTestDir creates a temporary directory for testing.
 func setupTestDir(t *testing.T) string {
 	t.Helper()
 	tempDir, err := os.MkdirTemp("", "cursor-rules-test-*")
@@ -22,7 +22,7 @@ func setupTestDir(t *testing.T) string {
 	return tempDir
 }
 
-// cleanupTestDir removes the temporary directory
+// cleanupTestDir removes the temporary directory.
 func cleanupTestDir(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.RemoveAll(dir); err != nil {
@@ -30,7 +30,7 @@ func cleanupTestDir(t *testing.T, dir string) {
 	}
 }
 
-// setupTestTemplates creates mock templates for testing
+// setupTestTemplates creates mock templates for testing.
 func setupTestTemplates() {
 	// Initialize templates.Categories if it doesn't exist
 	if templates.Categories == nil {
@@ -72,7 +72,7 @@ func setupTestTemplates() {
 	}
 }
 
-// TestLoadLockFile_New tests loading a lock file that doesn't exist yet
+// TestLoadLockFile_New tests loading a lock file that doesn't exist yet.
 func TestLoadLockFile_New(t *testing.T) {
 	tempDir := setupTestDir(t)
 	defer cleanupTestDir(t, tempDir)
@@ -87,7 +87,7 @@ func TestLoadLockFile_New(t *testing.T) {
 	}
 }
 
-// TestLockFileSaveLoad tests saving and loading a lock file
+// TestLockFileSaveLoad tests saving and loading a lock file.
 func TestLockFileSaveLoad(t *testing.T) {
 	tempDir := setupTestDir(t)
 	defer cleanupTestDir(t, tempDir)
@@ -133,7 +133,7 @@ func TestLockFileSaveLoad(t *testing.T) {
 	}
 }
 
-// TestIsInstalled tests the IsInstalled method
+// TestIsInstalled tests the IsInstalled method.
 func TestIsInstalled(t *testing.T) {
 	lock := &LockFile{
 		Installed: []string{"test-rule", "python"},
@@ -159,7 +159,7 @@ func TestIsInstalled(t *testing.T) {
 	}
 }
 
-// TestAddRule tests the AddRule function
+// TestAddRule tests the AddRule function.
 func TestAddRule(t *testing.T) {
 	tempDir := setupTestDir(t)
 	defer cleanupTestDir(t, tempDir)
@@ -169,7 +169,7 @@ func TestAddRule(t *testing.T) {
 
 	// Create templates directory
 	templatesDir := filepath.Join(tempDir, ".cursor", "rules")
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+	if err := os.MkdirAll(templatesDir, 0o755); err != nil {
 		t.Fatalf("Failed to create templates directory: %v", err)
 	}
 
@@ -200,7 +200,7 @@ func TestAddRule(t *testing.T) {
 	}
 }
 
-// TestRemoveRule tests the RemoveRule function
+// TestRemoveRule tests the RemoveRule function.
 func TestRemoveRule(t *testing.T) {
 	tempDir := setupTestDir(t)
 	defer cleanupTestDir(t, tempDir)
@@ -210,7 +210,7 @@ func TestRemoveRule(t *testing.T) {
 
 	// Create templates directory
 	templatesDir := filepath.Join(tempDir, ".cursor", "rules")
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+	if err := os.MkdirAll(templatesDir, 0o755); err != nil {
 		t.Fatalf("Failed to create templates directory: %v", err)
 	}
 
@@ -246,7 +246,7 @@ func TestRemoveRule(t *testing.T) {
 	}
 }
 
-// TestUpgradeRule tests the UpgradeRule function
+// TestUpgradeRule tests the UpgradeRule function.
 func TestUpgradeRule(t *testing.T) {
 	// Create a temporary directory
 	tempDir, err := os.MkdirTemp("", "cursor-rules-test")
@@ -276,7 +276,7 @@ func TestUpgradeRule(t *testing.T) {
 	// Create a test template file
 	testTemplateContent := "# Test Rule\n\nThis is a test rule."
 	testTemplatePath := filepath.Join(tempDir, "test-rule.mdc")
-	err = os.WriteFile(testTemplatePath, []byte(testTemplateContent), 0644)
+	err = os.WriteFile(testTemplatePath, []byte(testTemplateContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write test template: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestUpgradeRule(t *testing.T) {
 	delete(templates.Categories["general"].Templates, "test-rule")
 }
 
-// TestListInstalledRules tests the ListInstalledRules function
+// TestListInstalledRules tests the ListInstalledRules function.
 func TestListInstalledRules(t *testing.T) {
 	tempDir := setupTestDir(t)
 	defer cleanupTestDir(t, tempDir)
@@ -335,7 +335,7 @@ func TestListInstalledRules(t *testing.T) {
 
 	// Create templates directory
 	templatesDir := filepath.Join(tempDir, ".cursor", "rules")
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+	if err := os.MkdirAll(templatesDir, 0o755); err != nil {
 		t.Fatalf("Failed to create templates directory: %v", err)
 	}
 
@@ -390,7 +390,7 @@ func TestAddRuleByReference(t *testing.T) {
 This is a test rule created for testing AddRuleByReference.`
 
 	testFilePath := filepath.Join(tempDir, "test-rule.mdc")
-	err = os.WriteFile(testFilePath, []byte(testRuleContent), 0644)
+	err = os.WriteFile(testFilePath, []byte(testRuleContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
@@ -410,19 +410,21 @@ This is a test rule created for testing AddRuleByReference.`
 	// Verify the rule is in the lockfile
 	found := false
 	for _, rule := range lock.Rules {
-		if rule.Key == "test-rule" {
-			found = true
-			if rule.SourceType != SourceTypeLocalAbs {
-				t.Errorf("Expected source type %s, got %s", SourceTypeLocalAbs, rule.SourceType)
-			}
-			if rule.Reference != testFilePath {
-				t.Errorf("Expected reference %s, got %s", testFilePath, rule.Reference)
-			}
-			if len(rule.LocalFiles) != 1 || rule.LocalFiles[0] != "test-rule.mdc" {
-				t.Errorf("Expected LocalFiles [test-rule.mdc], got %v", rule.LocalFiles)
-			}
-			break
+		if rule.Key != "test-rule" {
+			continue
 		}
+
+		found = true
+		if rule.SourceType != SourceTypeLocalAbs {
+			t.Errorf("Expected source type %s, got %s", SourceTypeLocalAbs, rule.SourceType)
+		}
+		if rule.Reference != testFilePath {
+			t.Errorf("Expected reference %s, got %s", testFilePath, rule.Reference)
+		}
+		if len(rule.LocalFiles) != 1 || rule.LocalFiles[0] != "test-rule.mdc" {
+			t.Errorf("Expected LocalFiles [test-rule.mdc], got %v", rule.LocalFiles)
+		}
+		break
 	}
 
 	if !found {
@@ -459,7 +461,7 @@ This is a test rule created for testing AddRuleByReference.`
 	}
 }
 
-// TestShareRules tests the ShareRules function
+// TestShareRules tests the ShareRules function.
 func TestShareRules(t *testing.T) {
 	// Create a temporary directory for the test
 	tempDir, err := os.MkdirTemp("", "cursor-rules-test")
@@ -470,7 +472,7 @@ func TestShareRules(t *testing.T) {
 
 	// Create a temporary cursor rules dir
 	cursorDir := filepath.Join(tempDir, ".cursor", "rules")
-	if err := os.MkdirAll(cursorDir, 0755); err != nil {
+	if err := os.MkdirAll(cursorDir, 0o755); err != nil {
 		t.Fatalf("Failed to create cursor rules dir: %v", err)
 	}
 
@@ -508,7 +510,7 @@ func TestShareRules(t *testing.T) {
 	for _, rule := range testRules {
 		content := []byte(fmt.Sprintf("# Test rule for %s\n\nThis is a test rule.", rule.Key))
 		filePath := filepath.Join(cursorDir, rule.LocalFiles[0])
-		if err := os.WriteFile(filePath, content, 0644); err != nil {
+		if err := os.WriteFile(filePath, content, 0o644); err != nil {
 			t.Fatalf("Failed to create test rule file: %v", err)
 		}
 	}
@@ -591,21 +593,23 @@ func TestShareRules(t *testing.T) {
 		// Check that at least some local rules have embedded content
 		hasEmbeddedContent := false
 		for _, sr := range shareable.Rules {
-			if (sr.SourceType == SourceTypeLocalAbs || sr.SourceType == SourceTypeLocalRel) && sr.Content != "" {
-				hasEmbeddedContent = true
-				// Validate content
-				expectedContent := fmt.Sprintf("# Test rule for %s\n\nThis is a test rule.", sr.Key)
-				if sr.Content != expectedContent {
-					t.Errorf("Embedded content for rule %s doesn't match expected content", sr.Key)
-				}
-				// Validate filename
-				if sr.Filename == "" {
-					t.Errorf("Expected filename for rule %s with embedded content", sr.Key)
-				}
-				// Should not be marked as unshareable if it has content
-				if sr.Unshareable {
-					t.Errorf("Rule %s with embedded content should not be marked as unshareable", sr.Key)
-				}
+			if !(sr.SourceType == SourceTypeLocalAbs || sr.SourceType == SourceTypeLocalRel) || sr.Content == "" {
+				continue
+			}
+
+			hasEmbeddedContent = true
+			// Validate content
+			expectedContent := fmt.Sprintf("# Test rule for %s\n\nThis is a test rule.", sr.Key)
+			if sr.Content != expectedContent {
+				t.Errorf("Embedded content for rule %s doesn't match expected content", sr.Key)
+			}
+			// Validate filename
+			if sr.Filename == "" {
+				t.Errorf("Expected filename for rule %s with embedded content", sr.Key)
+			}
+			// Should not be marked as unshareable if it has content
+			if sr.Unshareable {
+				t.Errorf("Rule %s with embedded content should not be marked as unshareable", sr.Key)
 			}
 		}
 		if !hasEmbeddedContent {
@@ -614,7 +618,7 @@ func TestShareRules(t *testing.T) {
 	})
 }
 
-// TestRestoreFromShared tests the RestoreFromShared function
+// TestRestoreFromShared tests the RestoreFromShared function.
 func TestRestoreFromShared(t *testing.T) {
 	// Create a temporary directory for the test
 	tempDir, err := os.MkdirTemp("", "cursor-rules-test")
@@ -625,7 +629,7 @@ func TestRestoreFromShared(t *testing.T) {
 
 	// Create a temporary cursor rules dir
 	cursorDir := filepath.Join(tempDir, ".cursor", "rules")
-	if err := os.MkdirAll(cursorDir, 0755); err != nil {
+	if err := os.MkdirAll(cursorDir, 0o755); err != nil {
 		t.Fatalf("Failed to create cursor rules dir: %v", err)
 	}
 
@@ -658,7 +662,7 @@ func TestRestoreFromShared(t *testing.T) {
 	// Save the shareable file
 	shareFilePath := filepath.Join(tempDir, "cursor-rules-share-test.json")
 	data, _ := json.MarshalIndent(shareable, "", "  ")
-	if err := os.WriteFile(shareFilePath, data, 0644); err != nil {
+	if err := os.WriteFile(shareFilePath, data, 0o644); err != nil {
 		t.Fatalf("Failed to create test shareable file: %v", err)
 	}
 
@@ -675,7 +679,9 @@ func TestRestoreFromShared(t *testing.T) {
 	t.Run("WithAutoResolveSkip", func(t *testing.T) {
 		// Clear the cursor dir
 		os.RemoveAll(cursorDir)
-		os.MkdirAll(cursorDir, 0755)
+		if err := os.MkdirAll(cursorDir, 0o755); err != nil {
+			t.Fatalf("Failed to create cursor directory: %v", err)
+		}
 
 		// Create a test lockfile with an existing rule to test conflict resolution
 		existingLock := &LockFile{
@@ -714,7 +720,7 @@ func TestRestoreFromShared(t *testing.T) {
 		// Create the embedded file
 		embeddedContent := "# Test embedded rule\n\nThis is an embedded rule."
 		embeddedPath := filepath.Join(cursorDir, "test-embedded.mdc")
-		if err := os.WriteFile(embeddedPath, []byte(embeddedContent), 0644); err != nil {
+		if err := os.WriteFile(embeddedPath, []byte(embeddedContent), 0o644); err != nil {
 			t.Fatalf("Failed to write embedded file: %v", err)
 		}
 
@@ -757,7 +763,9 @@ func TestRestoreFromShared(t *testing.T) {
 	t.Run("WithAutoResolveRename", func(t *testing.T) {
 		// Clear the cursor dir
 		os.RemoveAll(cursorDir)
-		os.MkdirAll(cursorDir, 0755)
+		if err := os.MkdirAll(cursorDir, 0o755); err != nil {
+			t.Fatalf("Failed to create cursor directory: %v", err)
+		}
 
 		// Create a test lockfile with an existing rule to test conflict resolution
 		existingLock := &LockFile{
@@ -808,10 +816,6 @@ func TestRestoreFromShared(t *testing.T) {
 			t.Fatalf("Failed to save lockfile: %v", err)
 		}
 
-		// Print the lock file contents for debugging
-		data, _ := json.MarshalIndent(lock, "", "  ")
-		t.Logf("Lockfile contents after manual updates: %s", string(data))
-
 		// Check the lockfile
 		lock, err = LoadLockFile(cursorDir)
 		if err != nil {
@@ -821,7 +825,6 @@ func TestRestoreFromShared(t *testing.T) {
 		// Both the existing rule and renamed rule should exist
 		var foundExisting, foundRenamed bool
 		for _, rule := range lock.Rules {
-			t.Logf("Checking rule: Key=%s, Category=%s", rule.Key, rule.Category)
 			if rule.Key == "test-builtin" && rule.Category == "existing" {
 				foundExisting = true
 			}
