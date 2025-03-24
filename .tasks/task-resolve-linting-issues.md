@@ -16,6 +16,55 @@ The codebase has several linting issues flagged by golangci-lint, including HTTP
 
 Addressing linting issues will improve code robustness and readability. The implementation will focus on highest priority issues first, followed by complex refactoring. This systematic approach ensures that each change can be tested independently.
 
+## Completed Work
+
+We've successfully addressed the high-priority linting issues:
+
+1. Fixed HTTP context issues (noctx):
+
+   - Added context parameters to network-related functions in manager.go
+   - Modified HTTP requests to use http.NewRequestWithContext
+   - Updated function calls across the codebase to pass context.Background()
+
+2. Fixed unwrapped errors (wrapcheck):
+
+   - Added proper error wrapping with fmt.Errorf and %w in filepath.Walk
+   - Improved error messages for filepath.Rel errors
+   - Added context to various error returns
+
+3. Fixed long lines (lll):
+   - Broke up long flag description lines in main.go
+   - Split parameter descriptions into multiple lines
+
+## Remaining Issues
+
+The following issues still need to be addressed:
+
+1. Complex nested blocks (nestif):
+
+   - main.go: if len(args) > 0 (complexity: 51)
+   - manager.go: Various functions with complexity > 5
+
+2. High cognitive complexity (gocognit):
+
+   - main.go: main() function (complexity: 138)
+   - manager.go: RestoreFromShared() function (complexity: 98)
+   - manager.go: UpgradeRule() function (complexity: 67)
+   - Several other functions with complexity > 20
+
+3. Long function (funlen):
+   - templates/custom.go: CreateCustomTemplate() (53 > 50 statements)
+
+These issues require more extensive refactoring and should be approached carefully to avoid introducing bugs. The recommended approach is to:
+
+1. Break down large functions into smaller helper functions
+2. Use guard clauses to reduce nesting
+3. Extract complex logic into separate functions
+4. Apply consistent patterns for error handling and flow control
+
+Given the complexity of these changes, they should be addressed in a separate PR after thorough testing of the current fixes.
+
+
 ## Task Steps
 
 1. [x] Fix High-Priority HTTP Context Issues (noctx)
