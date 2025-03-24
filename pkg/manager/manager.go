@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -409,7 +410,7 @@ func handleLocalFile(cursorDir, ref string, isAbs bool) (RuleSource, error) {
 }
 
 // handleGitHubBlob downloads a single file from GitHub.
-func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
+func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, error) {
 	// 1. Parse the GitHub URL
 	matches := githubBlobPattern.FindStringSubmatch(ref)
 	if len(matches) < 5 {
@@ -425,7 +426,7 @@ func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
 	resolvedCommit := ""
 	if !isGitCommitHash(gitRef) {
 		// This is likely a branch name, get the HEAD commit
-		commit, err := getHeadCommitForBranch(owner, repo, gitRef)
+		commit, err := getHeadCommitForBranch(ctx, owner, repo, gitRef)
 		if err != nil {
 			return RuleSource{}, fmt.Errorf("failed to get HEAD commit for branch %s: %w", gitRef, err)
 		}
@@ -440,7 +441,11 @@ func handleGitHubBlob(cursorDir, ref string) (RuleSource, error) {
 		owner, repo, gitRef, path)
 
 	// 4. Download the file
-	resp, err := http.Get(rawURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
+	if err != nil {
+		return RuleSource{}, fmt.Errorf("failed to create request for %s: %w", rawURL, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return RuleSource{}, fmt.Errorf("failed to download file from %s: %w", rawURL, err)
 	}
@@ -497,11 +502,11 @@ func isGitCommitHash(s string) bool {
 }
 
 // getHeadCommitForBranch fetches the HEAD commit for a given branch using GitHub API.
-func getHeadCommitForBranch(owner, repo, branch string) (string, error) {
+func getHeadCommitForBranch(ctx context.Context, owner, repo, branch string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/branches/%s", owner, repo, branch)
 
 	// Create a request with User-Agent header (required by GitHub API)
-	req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request for GitHub API: %w", err)
 	}
@@ -627,7 +632,7 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 	case isRelativePath(ref):
 		ruleSource, handleErr = handleLocalFile(cursorDir, ref, false)
 	case isGitHubBlobURL(ref):
-		ruleSource, handleErr = handleGitHubBlob(cursorDir, ref)
+		ruleSource, handleErr = handleGitHubBlob(context.Background(), cursorDir, ref)
 	case isGitHubTreeURL(ref):
 		ruleSource, handleErr = handleGitHubDir(cursorDir, ref)
 	default:
@@ -815,7 +820,7 @@ func UpgradeRule(cursorDir string, ruleKey string) error {
 			}
 
 			// Get the latest commit for the branch
-			newCommit, err := getHeadCommitForBranch(owner, repo, gitRef)
+			newCommit, err := getHeadCommitForBranch(context.Background(), owner, repo, gitRef)
 			if err != nil {
 				return fmt.Errorf("failed to get latest commit for branch %s: %w", gitRef, err)
 			}
@@ -921,14 +926,14 @@ func GetInstalledRules(cursorDir string) ([]RuleSource, error) {
 func SyncLocalRules(cursorDir string) error {
 	lock, err := LoadLockFile(cursorDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load lock file: %w", err)
 	}
 
 	// Get all .mdc files including those directly in the rules directory
 	ruleFiles := []string{}
 	err = filepath.Walk(cursorDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("error walking directory %q: %w", path, err)
 		}
 
 		// Skip if it's a directory, non-mdc file, or the lockfile itself
@@ -944,7 +949,7 @@ func SyncLocalRules(cursorDir string) error {
 	})
 
 	if err != nil {
-		return err
+		return fmt.Errorf("error walking directory %s: %w", cursorDir, err)
 	}
 
 	// Now process each rule file and add if not already in lockfile
@@ -952,7 +957,7 @@ func SyncLocalRules(cursorDir string) error {
 		// Get the relative path for display/reference
 		relPath, err := filepath.Rel(cursorDir, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("filepath.Rel failed for %s: %w", path, err)
 		}
 
 		// Extract rule key from filename (without extension)
@@ -1136,14 +1141,18 @@ func findAvailableKey(baseKey string, existingRules map[string]bool) string {
 }
 
 // autoResolve specifies how to handle conflicts: "skip", "overwrite", or "rename".
-func RestoreFromShared(cursorDir, sharePath, autoResolve string) error {
+func RestoreFromShared(ctx context.Context, cursorDir, sharePath, autoResolve string) error {
 	var shareData []byte
 	var err error
 
 	// Check if sharePath is a URL
 	if strings.HasPrefix(sharePath, "http://") || strings.HasPrefix(sharePath, "https://") {
 		// Download the file from the URL
-		resp, err := http.Get(sharePath)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, sharePath, http.NoBody)
+		if err != nil {
+			return fmt.Errorf("failed to create request for shareable file URL: %w", err)
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("failed to download shareable file from URL: %w", err)
 		}

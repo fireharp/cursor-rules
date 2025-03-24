@@ -1,3 +1,28 @@
+## TS: 2025-03-24 06:11:20 CET
+
+## PROBLEM: Need to address golangci-lint issues in codebase
+
+WHAT WAS DONE:
+
+- Created comprehensive plan for resolving linter issues
+- Organized linting fixes into priority levels:
+  - High: HTTP context issues, unwrapped errors, long lines
+  - Medium: Complex nested blocks, high cognitive complexity
+  - Low: Long functions, markdown formatting
+- Created task-resolve-linting-issues.md with detailed task steps
+
+---
+
+MEMO:
+
+The linting issues will be tackled in order of priority to ensure code stability throughout the refactoring process. Key improvements include:
+
+- Adding proper context to HTTP requests for better cancellation support
+- Wrapping errors with context for improved error tracing
+- Refactoring complex functions into smaller, more testable units
+
+The complete implementation plan provides a systematic approach to improving code quality while maintaining existing functionality.
+
 ## TS: 2025-03-24 05:38:18 CET
 
 ## PROBLEM: Need comprehensive linting and CI check setup for code quality
@@ -406,3 +431,24 @@ WHAT WAS DONE:
 MEMO:
 
 The updated plan provides a clear roadmap for addressing the remaining linting issues. High-priority items include HTTP context issues, unwrapped errors, and long lines in code. Medium-priority items focus on reducing complexity in nested blocks and high cognitive complexity functions. The plan acknowledges that some complex refactoring should be deferred to avoid potential breaking changes and suggests creating separate tasks for each complex function.
+
+## TS: 2025-03-24 06:26:23 CET
+
+## PROBLEM: Linter reported HTTP context and unwrapped error issues
+
+WHAT WAS DONE:
+
+- Fixed HTTP context issues (noctx) by:
+  - Added context parameters to network-related functions
+  - Modified HTTP requests to use http.NewRequestWithContext
+  - Updated function calls across the codebase to pass context.Background()
+- Fixed unwrapped errors (wrapcheck) by:
+  - Added proper error wrapping with fmt.Errorf and %w
+  - Added context to errors from filepath.Walk and filepath.Rel
+  - Improved error messages to include relevant paths and operations
+
+---
+
+MEMO:
+
+Adding HTTP context support makes the code more robust by allowing for proper timeout and cancellation handling in network requests. The error wrapping improvements make debugging easier by providing more context about where and why errors occurred. These changes follow Go best practices for error handling and network operations.

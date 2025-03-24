@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -838,6 +839,14 @@ func TestRestoreFromShared(t *testing.T) {
 		}
 		if !foundRenamed {
 			t.Errorf("Rule was not renamed correctly")
+		}
+	})
+
+	// Test RestoreFromShared with defaults
+	t.Run("default options", func(t *testing.T) {
+		err = RestoreFromShared(context.Background(), cursorDir, shareFilePath, "")
+		if err != nil {
+			t.Fatalf("RestoreFromShared failed: %v", err)
 		}
 	})
 }

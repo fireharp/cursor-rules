@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -38,7 +39,8 @@ func main() {
 	listDetailedFlag := listCmd.Bool("detailed", false, "Show detailed information about installed rules")
 
 	lockLocationCmd := flag.NewFlagSet("set-lock-location", flag.ExitOnError)
-	useRootFlag := lockLocationCmd.Bool("root", false, "Use project root for lockfile location (if false, uses .cursor/rules)")
+	useRootFlag := lockLocationCmd.Bool("root", false,
+		"Use project root for lockfile location (if false, uses .cursor/rules)")
 
 	// Add share and restore commands
 	shareCmd := flag.NewFlagSet("share", flag.ExitOnError)
@@ -46,7 +48,8 @@ func main() {
 	shareEmbedFlag := shareCmd.Bool("embed", false, "Embed .mdc content for local references")
 
 	restoreCmd := flag.NewFlagSet("restore", flag.ExitOnError)
-	restoreAutoResolveFlag := restoreCmd.String("auto-resolve", "", "Automatically resolve conflicts (options: skip, overwrite, rename)")
+	restoreAutoResolveFlag := restoreCmd.String("auto-resolve", "",
+		"Automatically resolve conflicts (options: skip, overwrite, rename)")
 
 	// Parse flags
 	flag.Parse()
@@ -327,7 +330,7 @@ func main() {
 				return
 			}
 
-			if err := manager.RestoreFromShared(cursorDir, sharedFilePath, autoResolve); err != nil {
+			if err := manager.RestoreFromShared(context.Background(), cursorDir, sharedFilePath, autoResolve); err != nil {
 				fmt.Printf("Error restoring rules: %v\n", err)
 				return
 			}
