@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,293 +13,492 @@ import (
 	"github.com/fireharp/cursor-rules/pkg/templates"
 )
 
-// These variables will be set by goreleaser
+// These variables will be set by goreleaser.
 var (
-	version               = "dev"
-	commit                = "none"
-	date                  = "unknown"
-	defaultCursorRulesDir = "cursor-rules"
+	version = "0.1.5"
+	commit  = "none"
+	date    = "unknown"
 )
 
+// AppFlags contains the parsed top-level command flags.
+type AppFlags struct {
+	versionFlag bool
+	initFlag    bool
+	setupFlag   bool
+}
+
+// AppFlagSets contains all the flag sets for subcommands.
+type AppFlagSets struct {
+	addCmd                 *flag.FlagSet
+	addRefCmd              *flag.FlagSet
+	removeCmd              *flag.FlagSet
+	upgradeCmd             *flag.FlagSet
+	updateCmd              *flag.FlagSet
+	listCmd                *flag.FlagSet
+	listDetailedFlag       *bool
+	lockLocationCmd        *flag.FlagSet
+	useRootFlag            *bool
+	shareCmd               *flag.FlagSet
+	shareOutputFlag        *string
+	shareEmbedFlag         *bool
+	restoreCmd             *flag.FlagSet
+	restoreAutoResolveFlag *string
+}
+
 func main() {
-	// Define command line flags
-	versionFlag := flag.Bool("version", false, "Print version information")
-	initFlag := flag.Bool("init", false, "Initialize Cursor Rules with just the init template")
-	setupFlag := flag.Bool("setup", false, "Run project type detection and setup appropriate rules")
+	// Define flags and flag sets
+	flags, flagSets := defineFlags()
 
-	// Define flag sets for new subcommands
-	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
-
-	addRefCmd := flag.NewFlagSet("add-ref", flag.ExitOnError)
-
-	removeCmd := flag.NewFlagSet("remove", flag.ExitOnError)
-	upgradeCmd := flag.NewFlagSet("upgrade", flag.ExitOnError)
-
-	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
-	listDetailedFlag := listCmd.Bool("detailed", false, "Show detailed information about installed rules")
-
-	lockLocationCmd := flag.NewFlagSet("set-lock-location", flag.ExitOnError)
-	useRootFlag := lockLocationCmd.Bool("root", false, "Use project root for lockfile location (if false, uses .cursor/rules)")
-
-	// Parse flags
+	// Parse flags and get arguments
 	flag.Parse()
-
-	// Check for command-style arguments (cursor-rules init, cursor-rules setup)
 	args := flag.Args()
+
+	// Get command if present
 	command := ""
 	if len(args) > 0 {
 		command = args[0]
 	}
 
-	// Handle version flag
-	if *versionFlag {
-		fmt.Printf("cursor-rules version %s, commit %s, built at %s\n", version, commit, date)
+	// Handle version flag early - guard clause
+	if flags.versionFlag {
+		printVersion()
 		return
 	}
 
 	fmt.Println("Cursor Rules Initializer")
 
-	// Get current working directory and executable path
-	cwd, err := os.Getwd()
+	// Initialize environment (directories, templates)
+	cwd, cursorDir, _, err := initializeEnvironment()
 	if err != nil {
-		fmt.Printf("Error getting current directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Initialization error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Handle command-line style commands
+	if len(args) > 0 {
+		// Handle subcommands
+		handled, err := handleCommand(cursorDir, args[0], args[1:], flagSets)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Command error: %v\n", err)
+			os.Exit(1)
+		}
+		if handled {
+			return
+		}
+	}
+
+	// Handle flag-style commands
+	if flags.initFlag || command == "init" {
+		runInitCommand(cursorDir)
+		return
+	}
+
+	if flags.setupFlag || command == "setup" {
+		setupProject(cwd, cursorDir)
+		return
+	}
+
+	// If no command was handled, show help
+	showHelp()
+}
+
+// defineFlags sets up all command-line flags and returns the parsed flags.
+func defineFlags() (AppFlags, AppFlagSets) {
+	// Define top-level flags
+	versionFlag := flag.Bool("version", false, "Print version information")
+	initFlag := flag.Bool("init", false, "Initialize Cursor Rules with just the init template")
+	setupFlag := flag.Bool("setup", false, "Run project type detection and setup appropriate rules")
+
+	// Define flag sets for subcommands
+	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
+	addRefCmd := flag.NewFlagSet("add-ref", flag.ExitOnError)
+	removeCmd := flag.NewFlagSet("remove", flag.ExitOnError)
+	upgradeCmd := flag.NewFlagSet("upgrade", flag.ExitOnError)
+	updateCmd := flag.NewFlagSet("update", flag.ExitOnError)
+
+	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
+	listDetailedFlag := listCmd.Bool("detailed", false, "Show detailed information about installed rules")
+
+	lockLocationCmd := flag.NewFlagSet("set-lock-location", flag.ExitOnError)
+	useRootFlag := lockLocationCmd.Bool("root", false,
+		"Use project root for lockfile location (if false, uses .cursor/rules)")
+
+	// Add share and restore commands
+	shareCmd := flag.NewFlagSet("share", flag.ExitOnError)
+	shareOutputFlag := shareCmd.String("output", "cursor-rules-share.json",
+		"Output file path for the shareable file")
+	shareEmbedFlag := shareCmd.Bool("embed", false, "Embed .mdc content for local references")
+
+	restoreCmd := flag.NewFlagSet("restore", flag.ExitOnError)
+	restoreAutoResolveFlag := restoreCmd.String("auto-resolve", "",
+		"Automatically resolve conflicts (options: skip, overwrite, rename)")
+
+	return AppFlags{
+			versionFlag: *versionFlag,
+			initFlag:    *initFlag,
+			setupFlag:   *setupFlag,
+		}, AppFlagSets{
+			addCmd:                 addCmd,
+			addRefCmd:              addRefCmd,
+			removeCmd:              removeCmd,
+			upgradeCmd:             upgradeCmd,
+			updateCmd:              updateCmd,
+			listCmd:                listCmd,
+			listDetailedFlag:       listDetailedFlag,
+			lockLocationCmd:        lockLocationCmd,
+			useRootFlag:            useRootFlag,
+			shareCmd:               shareCmd,
+			shareOutputFlag:        shareOutputFlag,
+			shareEmbedFlag:         shareEmbedFlag,
+			restoreCmd:             restoreCmd,
+			restoreAutoResolveFlag: restoreAutoResolveFlag,
+		}
+}
+
+// initializeEnvironment sets up the environment (directories, templates).
+func initializeEnvironment() (cwd, cursorDir, projectDir string, err error) {
+	// Get current working directory
+	cwd, err = os.Getwd()
+	if err != nil {
+		return "", "", "", fmt.Errorf("error getting current directory: %w", err)
 	}
 
 	// Get executable directory to find template files
 	execPath, err := os.Executable()
 	if err != nil {
-		fmt.Printf("Error getting executable path: %v\n", err)
-		os.Exit(1)
+		return "", "", "", fmt.Errorf("error getting executable path: %w", err)
 	}
 
 	execDir := filepath.Dir(execPath)
-	projectDir := findProjectRoot(execDir)
+	projectDir = findProjectRoot(execDir)
 
 	// Load templates
 	err = templates.LoadTemplates(projectDir)
 	if err != nil {
-		fmt.Printf("Error loading templates: %v\n", err)
-		os.Exit(1)
+		return "", "", "", fmt.Errorf("error loading templates: %w", err)
 	}
 
 	// Create .cursor/rules directory if it doesn't exist
-	cursorDir := filepath.Join(cwd, ".cursor", "rules")
-	if err := os.MkdirAll(cursorDir, 0755); err != nil {
-		fmt.Printf("Error creating directory: %v\n", err)
-		os.Exit(1)
+	cursorDir = filepath.Join(cwd, ".cursor", "rules")
+	if err := os.MkdirAll(cursorDir, 0o755); err != nil {
+		return "", "", "", fmt.Errorf("error creating directory: %w", err)
 	}
 
 	fmt.Printf("Initialized .cursor/rules directory in %s\n", cursorDir)
+	return cwd, cursorDir, projectDir, nil
+}
 
-	// Handle subcommands
-	if len(args) > 0 {
-		switch args[0] {
-		case "add":
-			// Usage: cursor-rules add <ruleKey or reference>
-			_ = addCmd.Parse(args[1:])
-			if addCmd.NArg() < 1 {
-				fmt.Println("Usage: cursor-rules add <reference>")
-				fmt.Println("  where <reference> can be:")
-				fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
-				fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
-				fmt.Println("  - GitHub directory: https://github.com/user/repo/tree/main/rules/")
-				return
-			}
-			reference := addCmd.Arg(0)
+// printVersion prints the version information.
+func printVersion() {
+	fmt.Printf("cursor-rules version %s, commit %s, built at %s\n", version, commit, date)
+}
 
-			// Always use AddRuleByReference for all add operations
-			if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
-				fmt.Printf("Error adding rule from reference: %v\n", err)
-			} else {
-				fmt.Printf("Rule from %q added successfully\n", reference)
-			}
-			return
-
-		case "add-ref":
-			// Usage: cursor-rules add-ref <reference>
-			// Reference can be:
-			// - Local file path (absolute or relative)
-			// - GitHub URL (blob or tree)
-			_ = addRefCmd.Parse(args[1:])
-			if addRefCmd.NArg() < 1 {
-				fmt.Println("Usage: cursor-rules add-ref <reference>")
-				fmt.Println("  where <reference> can be:")
-				fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
-				fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
-				fmt.Println("  - GitHub directory: https://github.com/user/repo/tree/main/rules/")
-				return
-			}
-			reference := addRefCmd.Arg(0)
-			if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
-				fmt.Printf("Error adding rule from reference: %v\n", err)
-			} else {
-				fmt.Printf("Rule from %q added successfully\n", reference)
-			}
-			return
-
-		case "remove":
-			// Usage: cursor-rules remove <ruleKey>
-			_ = removeCmd.Parse(args[1:])
-			if removeCmd.NArg() < 1 {
-				fmt.Println("Usage: cursor-rules remove <ruleKey>")
-				return
-			}
-			ruleKey := removeCmd.Arg(0)
-			if err := manager.RemoveRule(cursorDir, ruleKey); err != nil {
-				fmt.Printf("Error removing rule: %v\n", err)
-			} else {
-				fmt.Printf("Rule %q removed successfully.\n", ruleKey)
-			}
-			return
-
-		case "upgrade":
-			// Usage: cursor-rules upgrade <ruleKey>
-			_ = upgradeCmd.Parse(args[1:])
-			if upgradeCmd.NArg() < 1 {
-				fmt.Println("Usage: cursor-rules upgrade <ruleKey>")
-				return
-			}
-			ruleKey := upgradeCmd.Arg(0)
-			if err := manager.UpgradeRule(cursorDir, ruleKey); err != nil {
-				fmt.Printf("Error upgrading rule: %v\n", err)
-			} else {
-				fmt.Printf("Rule %q upgraded successfully.\n", ruleKey)
-			}
-			return
-
-		case "list":
-			// Usage: cursor-rules list [--detailed]
-			_ = listCmd.Parse(args[1:])
-
-			// First sync any local rules that aren't in the lockfile
-			err := manager.SyncLocalRules(cursorDir)
-			if err != nil {
-				fmt.Printf("Error syncing local rules: %v\n", err)
-				// Continue anyway to show what's in the lockfile
-			}
-
-			if *listDetailedFlag {
-				// Detailed list
-				rules, err := manager.GetInstalledRules(cursorDir)
-				if err != nil {
-					fmt.Printf("Error listing rules: %v\n", err)
-					return
-				}
-				if len(rules) == 0 {
-					fmt.Println("No rules installed.")
-				} else {
-					fmt.Println("Installed rules:")
-					for _, r := range rules {
-						fmt.Printf("  - %s\n", r.Key)
-						fmt.Printf("    Type: %s\n", r.SourceType)
-						fmt.Printf("    Reference: %s\n", r.Reference)
-						if r.GitRef != "" {
-							fmt.Printf("    Git Ref: %s\n", r.GitRef)
-						}
-						if len(r.LocalFiles) > 0 {
-							fmt.Printf("    Files: %s\n", strings.Join(r.LocalFiles, ", "))
-						}
-						fmt.Println()
-					}
-				}
-			} else {
-				// Simple list
-				installed, err := manager.ListInstalledRules(cursorDir)
-				if err != nil {
-					fmt.Printf("Error listing rules: %v\n", err)
-					return
-				}
-				if len(installed) == 0 {
-					fmt.Println("No rules installed.")
-				} else {
-					fmt.Println("Installed rules:")
-					for _, r := range installed {
-						fmt.Printf("  - %s\n", r)
-					}
-				}
-			}
-			return
-
-		case "set-lock-location":
-			// Usage: cursor-rules set-lock-location [--root]
-			_ = lockLocationCmd.Parse(args[1:])
-
-			// Set the lock file location
-			newPath, err := manager.SetLockFileLocation(cursorDir, *useRootFlag)
-			if err != nil {
-				fmt.Printf("Error setting lockfile location: %v\n", err)
-				return
-			}
-
-			location := "project root"
-			if !*useRootFlag {
-				location = ".cursor/rules directory"
-			}
-
-			fmt.Printf("Lock file location set to %s\n", location)
-			fmt.Printf("Lock file path: %s\n", newPath)
-			return
-
-		case "init":
-			// Handle init command
-			runInitCommand(cursorDir)
-			return
-
-		case "setup":
-			// Handle setup command
-			setupProject(cwd, cursorDir)
-			return
-		}
-	}
-
-	// Handle init flag
-	if *initFlag || command == "init" {
-		// Also create CR_SETUP as an alias for CursorRules.setup
-		// Add only the init.mdc template
+// handleCommand processes the given command and its arguments.
+func handleCommand(cursorDir, command string, args []string, flagSets AppFlagSets) (bool, error) {
+	switch command {
+	case "add":
+		return true, handleAddCommand(cursorDir, args, flagSets.addCmd)
+	case "add-ref":
+		return true, handleAddRefCommand(cursorDir, args, flagSets.addRefCmd)
+	case "remove":
+		return true, handleRemoveCommand(cursorDir, args, flagSets.removeCmd)
+	case "upgrade":
+		return true, handleUpgradeCommand(cursorDir, args, flagSets.upgradeCmd)
+	case "update":
+		return true, handleUpdateCommand(cursorDir, args, flagSets.updateCmd)
+	case "list":
+		return true, handleListCommand(cursorDir, args, flagSets.listCmd, flagSets.listDetailedFlag)
+	case "set-lock-location":
+		return true, handleSetLockLocationCommand(cursorDir, args, flagSets.lockLocationCmd, flagSets.useRootFlag)
+	case "share":
+		return true, handleShareCommand(cursorDir, args, flagSets.shareCmd, flagSets.shareOutputFlag, flagSets.shareEmbedFlag)
+	case "restore":
+		return true, handleRestoreCommand(cursorDir, args, flagSets.restoreCmd, flagSets.restoreAutoResolveFlag)
+	case "init":
 		runInitCommand(cursorDir)
-		return
+		return true, nil
+	case "setup":
+		setupProject(filepath.Dir(cursorDir), cursorDir)
+		return true, nil
 	}
-
-	// Handle setup flag
-	if *setupFlag || command == "setup" {
-		setupProject(cwd, cursorDir)
-		return
-	}
-
-	// If no specific command, show help
-	showHelp()
+	return false, nil
 }
 
-// Show help information for the cursor-rules command
+// Handler for the 'add' command.
+func handleAddCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing add command: %w", err)
+	}
+
+	if cmd.NArg() < 1 {
+		fmt.Println("Usage: cursor-rules add <reference>")
+		fmt.Println("  where <reference> can be:")
+		fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
+		fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
+		fmt.Println("  - GitHub directory: https://github.com/user/repo/tree/main/rules/")
+		return nil
+	}
+
+	reference := cmd.Arg(0)
+	if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
+		return fmt.Errorf("error adding rule from reference: %w", err)
+	}
+
+	fmt.Printf("Rule from %q added successfully\n", reference)
+	return nil
+}
+
+// Handler for the 'add-ref' command.
+func handleAddRefCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing add-ref command: %w", err)
+	}
+
+	if cmd.NArg() < 1 {
+		fmt.Println("Usage: cursor-rules add-ref <reference>")
+		fmt.Println("  where <reference> can be:")
+		fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
+		fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
+		fmt.Println("  - GitHub directory: https://github.com/user/repo/tree/main/rules/")
+		return nil
+	}
+
+	reference := cmd.Arg(0)
+	if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
+		return fmt.Errorf("error adding rule from reference: %w", err)
+	}
+
+	fmt.Printf("Rule from %q added successfully\n", reference)
+	return nil
+}
+
+// Handler for the 'remove' command.
+func handleRemoveCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing remove command: %w", err)
+	}
+
+	if cmd.NArg() < 1 {
+		fmt.Println("Usage: cursor-rules remove <ruleKey>")
+		return nil
+	}
+
+	ruleKey := cmd.Arg(0)
+	if err := manager.RemoveRule(cursorDir, ruleKey); err != nil {
+		return fmt.Errorf("error removing rule: %w", err)
+	}
+
+	fmt.Printf("Rule %q removed successfully.\n", ruleKey)
+	return nil
+}
+
+// Handler for the 'upgrade' command.
+func handleUpgradeCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing upgrade command: %w", err)
+	}
+
+	if cmd.NArg() < 1 {
+		fmt.Println("Usage: cursor-rules upgrade <ruleKey>")
+		return nil
+	}
+
+	ruleKey := cmd.Arg(0)
+	if err := manager.UpgradeRule(cursorDir, ruleKey); err != nil {
+		return fmt.Errorf("error upgrading rule: %w", err)
+	}
+
+	fmt.Printf("Rule %q upgraded successfully.\n", ruleKey)
+	return nil
+}
+
+// Handler for the 'update' command (alias for upgrade).
+func handleUpdateCommand(cursorDir string, args []string, cmd *flag.FlagSet) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing update command: %w", err)
+	}
+
+	if cmd.NArg() < 1 {
+		fmt.Println("Usage: cursor-rules update <ruleKey>")
+		fmt.Println("  (This is an alias for 'upgrade')")
+		return nil
+	}
+
+	ruleKey := cmd.Arg(0)
+	if err := manager.UpgradeRule(cursorDir, ruleKey); err != nil {
+		return fmt.Errorf("error updating rule: %w", err)
+	}
+
+	fmt.Printf("Rule %q updated successfully.\n", ruleKey)
+	return nil
+}
+
+// Handler for the 'list' command.
+func handleListCommand(cursorDir string, args []string, cmd *flag.FlagSet, detailedFlag *bool) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing list command: %w", err)
+	}
+
+	// First sync any local rules that aren't in the lockfile
+	err := manager.SyncLocalRules(cursorDir)
+	if err != nil {
+		fmt.Printf("Error syncing local rules: %v\n", err)
+		// Continue anyway to show what's in the lockfile
+	}
+
+	if *detailedFlag {
+		return showDetailedList(cursorDir)
+	}
+	return showSimpleList(cursorDir)
+}
+
+// Shows a detailed list of installed rules.
+func showDetailedList(cursorDir string) error {
+	rules, err := manager.GetInstalledRules(cursorDir)
+	if err != nil {
+		return fmt.Errorf("error listing rules: %w", err)
+	}
+
+	if len(rules) == 0 {
+		fmt.Println("No rules installed.")
+		return nil
+	}
+
+	fmt.Println("Installed rules:")
+	for _, r := range rules {
+		fmt.Printf("  - %s\n", r.Key)
+		fmt.Printf("    Type: %s\n", r.SourceType)
+		fmt.Printf("    Reference: %s\n", r.Reference)
+		if r.GitRef != "" {
+			fmt.Printf("    Git Ref: %s\n", r.GitRef)
+		}
+		if len(r.LocalFiles) > 0 {
+			fmt.Printf("    Files: %s\n", strings.Join(r.LocalFiles, ", "))
+		}
+		fmt.Println()
+	}
+	return nil
+}
+
+// Shows a simple list of installed rules.
+func showSimpleList(cursorDir string) error {
+	installed, err := manager.ListInstalledRules(cursorDir)
+	if err != nil {
+		return fmt.Errorf("error listing rules: %w", err)
+	}
+
+	if len(installed) == 0 {
+		fmt.Println("No rules installed.")
+		return nil
+	}
+
+	fmt.Println("Installed rules:")
+	for _, r := range installed {
+		fmt.Printf("  - %s\n", r)
+	}
+	return nil
+}
+
+// Handler for the 'set-lock-location' command.
+func handleSetLockLocationCommand(cursorDir string, args []string, cmd *flag.FlagSet, useRootFlag *bool) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing set-lock-location command: %w", err)
+	}
+
+	// Set the lock file location
+	newPath, err := manager.SetLockFileLocation(cursorDir, *useRootFlag)
+	if err != nil {
+		return fmt.Errorf("error setting lockfile location: %w", err)
+	}
+
+	location := "project root"
+	if !*useRootFlag {
+		location = ".cursor/rules directory"
+	}
+
+	fmt.Printf("Lock file location set to %s\n", location)
+	fmt.Printf("Lock file path: %s\n", newPath)
+	return nil
+}
+
+// Handler for the 'share' command.
+func handleShareCommand(cursorDir string, args []string, cmd *flag.FlagSet, outputFlag *string, embedFlag *bool) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing share command: %w", err)
+	}
+
+	outputPath := *outputFlag
+	embedContent := *embedFlag
+
+	if err := manager.ShareRules(cursorDir, outputPath, embedContent); err != nil {
+		return fmt.Errorf("error sharing rules: %w", err)
+	}
+
+	if embedContent {
+		fmt.Printf("Rules shared with embedded content to %s\n", outputPath)
+	} else {
+		fmt.Printf("Rules shared to %s\n", outputPath)
+	}
+	return nil
+}
+
+// Handler for the 'restore' command.
+func handleRestoreCommand(cursorDir string, args []string, cmd *flag.FlagSet, autoResolveFlag *string) error {
+	if err := cmd.Parse(args); err != nil {
+		return fmt.Errorf("error parsing restore command: %w", err)
+	}
+
+	if cmd.NArg() < 1 {
+		fmt.Println("Usage: cursor-rules restore <file|url> [--auto-resolve=OPTION]")
+		fmt.Println("  where auto-resolve can be 'skip', 'overwrite', or 'rename'")
+		return nil
+	}
+
+	sharedFilePath := cmd.Arg(0)
+	autoResolve := *autoResolveFlag
+
+	// Validate auto-resolve option
+	if autoResolve != "" && autoResolve != "skip" && autoResolve != "overwrite" && autoResolve != "rename" {
+		fmt.Println("Invalid auto-resolve option. Must be one of: skip, overwrite, rename")
+		return nil
+	}
+
+	if err := manager.RestoreFromShared(context.Background(), cursorDir, sharedFilePath, autoResolve); err != nil {
+		return fmt.Errorf("error restoring rules: %w", err)
+	}
+
+	fmt.Println("Rules successfully restored")
+	return nil
+}
+
+// Show help information for the cursor-rules command.
 func showHelp() {
-	fmt.Println("\nUsage:")
-	fmt.Println("  cursor-rules [command] [flags]")
+	fmt.Println("Usage: cursor-rules [command]")
 	fmt.Println("\nCommands:")
-	fmt.Println("  init                Initialize Cursor Rules with the init template")
-	fmt.Println("  setup               Auto-detect project type, then add rules")
-	fmt.Println("  add <reference>     Add a rule from a reference (local file or GitHub URL)")
-	fmt.Println("  add-ref <reference> Add a rule from a reference (alias for 'add')")
-	fmt.Println("  remove <rule>       Remove an installed rule")
-	fmt.Println("  upgrade <rule>      Reinstall / upgrade a rule")
-	fmt.Println("  list [--detailed]   List installed rules (--detailed for more info)")
-	fmt.Println("  set-lock-location   Set the location of the lockfile (--root for project root)")
-	fmt.Println("  --init              Same as the 'init' command")
-	fmt.Println("  --setup             Same as the 'setup' command")
-	fmt.Println("  --version           Print version information")
+	fmt.Println("  init                           Initialize Cursor Rules with just the init template")
+	fmt.Println("  setup                          Run project type detection and setup appropriate rules")
+	fmt.Println("  add <reference>                Add a rule from a reference (local file or GitHub URL)")
+	fmt.Println("  add-ref <reference>            (Alias for 'add') Add rule using a direct reference")
+	fmt.Println("  remove <ruleKey>               Remove an installed rule")
+	fmt.Println("  upgrade <ruleKey>              Upgrade a rule to the latest version")
+	fmt.Println("  update <ruleKey>               (Alias for 'upgrade') Update a rule to the latest version")
+	fmt.Println("  list [--detailed]              List installed rules, optionally with details")
+	fmt.Println("  set-lock-location [--root]     Set lockfile location (default is .cursor/rules)")
+	fmt.Println("  share [--output=FILE] [--embed] Generate shareable rule definitions")
+	fmt.Println("  restore <file|url> [--auto-resolve=OPTION] Restore rules from shareable definitions")
+	fmt.Println("                                              (file|url can be a local file path or a URL)")
+	fmt.Println("\nFlags:")
+	fmt.Println("  --version                      Show version information")
+	fmt.Println("  --init                         Initialize Cursor Rules with just the init template")
+	fmt.Println("  --setup                        Run project type detection and setup appropriate rules")
 	fmt.Println("\nExamples:")
-	fmt.Println("  cursor-rules init")
-	fmt.Println("  cursor-rules setup")
-	fmt.Println("  cursor-rules add ./custom-rules/my-rule.mdc")
-	fmt.Println("  cursor-rules add https://github.com/user/repo/blob/main/rules/python.mdc")
-	fmt.Println("  cursor-rules add-ref /Users/me/custom-rule.mdc")
-	fmt.Println("  cursor-rules add-ref https://github.com/user/repo/blob/main/rules/python.mdc")
-	fmt.Println("  cursor-rules remove python")
+	fmt.Println("  cursor-rules add https://github.com/user/repo/blob/main/path/to/rule.mdc")
+	fmt.Println("  cursor-rules add ./local/path/to/rule.mdc")
+	fmt.Println("  cursor-rules upgrade my-rule")
 	fmt.Println("  cursor-rules list --detailed")
-	fmt.Println("  cursor-rules set-lock-location --root")
 }
 
-// runInitCommand initializes cursor rules with just the init template
+// runInitCommand initializes cursor rules with just the init template.
 func runInitCommand(cursorDir string) {
 	// Get the init template from the general category
 	initTemplate, ok := templates.Categories["general"].Templates["init"]
@@ -308,18 +508,17 @@ func runInitCommand(cursorDir string) {
 	}
 
 	// Modify the init template to include CR_SETUP as an alias
-	initTemplate.Content = strings.Replace(
+	initTemplate.Content = strings.ReplaceAll(
 		initTemplate.Content,
 		"Run CursorRules.setup in Cursor",
-		"Run CursorRules.setup or CR_SETUP in Cursor",
-		-1)
+		"Run CursorRules.setup or CR_SETUP in Cursor")
 
 	// Update the template in the global map with the modified content
 	templates.Categories["general"].Templates["init"] = initTemplate
 
 	// Write init template to filesystem and add it by reference
 	initPath := filepath.Join(cursorDir, "init.mdc")
-	err := os.WriteFile(initPath, []byte(initTemplate.Content), 0644)
+	err := os.WriteFile(initPath, []byte(initTemplate.Content), 0o600)
 	if err != nil {
 		fmt.Printf("Error writing init template: %v\n", err)
 		os.Exit(1)
@@ -334,7 +533,7 @@ func runInitCommand(cursorDir string) {
 	fmt.Println("Added init template. Run CursorRules.setup or CR_SETUP in Cursor to continue setup.")
 }
 
-// setupProject detects project type and sets up appropriate rules
+// setupProject detects project type and sets up appropriate rules.
 func setupProject(projectDir, cursorDir string) {
 	fmt.Println("Detecting project type...")
 
@@ -346,18 +545,17 @@ func setupProject(projectDir, cursorDir string) {
 	}
 
 	// Update the template to include CR_SETUP as an alias
-	setupTemplate.Content = strings.Replace(
+	setupTemplate.Content = strings.ReplaceAll(
 		setupTemplate.Content,
 		"CursorRules.setup",
-		"CursorRules.setup or CR_SETUP",
-		-1)
+		"CursorRules.setup or CR_SETUP")
 
 	// Update the template in the global map with the modified content
 	templates.Categories["general"].Templates["setup"] = setupTemplate
 
 	// Write setup template to filesystem so we can add it by reference
 	setupPath := filepath.Join(cursorDir, "setup.mdc")
-	err := os.WriteFile(setupPath, []byte(setupTemplate.Content), 0644)
+	err := os.WriteFile(setupPath, []byte(setupTemplate.Content), 0o600)
 	if err != nil {
 		fmt.Printf("Error writing setup template: %v\n", err)
 		return
@@ -384,10 +582,11 @@ func setupProject(projectDir, cursorDir string) {
 				fmt.Println("Error: React template not found")
 				return
 			}
+			// Write React template to filesystem and add it by reference
 			reactPath := filepath.Join(cursorDir, "react.mdc")
-			err = os.WriteFile(reactPath, []byte(reactTemplate.Content), 0644)
+			err = os.WriteFile(reactPath, []byte(reactTemplate.Content), 0o600)
 			if err != nil {
-				fmt.Printf("Error writing react template: %v\n", err)
+				fmt.Printf("Error writing React template: %v\n", err)
 				return
 			}
 
@@ -410,10 +609,11 @@ func setupProject(projectDir, cursorDir string) {
 			fmt.Println("Error: Python template not found")
 			return
 		}
+		// Write Python template to filesystem and add it by reference
 		pythonPath := filepath.Join(cursorDir, "python.mdc")
-		err = os.WriteFile(pythonPath, []byte(pythonTemplate.Content), 0644)
+		err = os.WriteFile(pythonPath, []byte(pythonTemplate.Content), 0o600)
 		if err != nil {
-			fmt.Printf("Error writing python template: %v\n", err)
+			fmt.Printf("Error writing Python template: %v\n", err)
 			return
 		}
 
@@ -430,8 +630,9 @@ func setupProject(projectDir, cursorDir string) {
 		fmt.Println("Error: General template not found")
 		return
 	}
+	// Add the general template for all project types
 	generalPath := filepath.Join(cursorDir, "general.mdc")
-	err = os.WriteFile(generalPath, []byte(generalTemplate.Content), 0644)
+	err = os.WriteFile(generalPath, []byte(generalTemplate.Content), 0o600)
 	if err != nil {
 		fmt.Printf("Error writing general template: %v\n", err)
 		return
@@ -447,26 +648,26 @@ func setupProject(projectDir, cursorDir string) {
 	fmt.Println("\nCursor rules setup complete!")
 }
 
-// hasReactDependency checks if package.json contains React dependency
-func hasReactDependency(packageJsonPath string) bool {
-	data, err := os.ReadFile(packageJsonPath)
+// hasReactDependency checks if package.json contains React dependency.
+func hasReactDependency(packageJSONPath string) bool {
+	data, err := os.ReadFile(packageJSONPath)
 	if err != nil {
 		return false
 	}
 
-	var packageJson map[string]interface{}
-	if err := json.Unmarshal(data, &packageJson); err != nil {
+	var packageJSON map[string]interface{}
+	if err := json.Unmarshal(data, &packageJSON); err != nil {
 		return false
 	}
 
 	// Check dependencies and devDependencies for React
-	if deps, ok := packageJson["dependencies"].(map[string]interface{}); ok {
+	if deps, ok := packageJSON["dependencies"].(map[string]interface{}); ok {
 		if _, hasReact := deps["react"]; hasReact {
 			return true
 		}
 	}
 
-	if devDeps, ok := packageJson["devDependencies"].(map[string]interface{}); ok {
+	if devDeps, ok := packageJSON["devDependencies"].(map[string]interface{}); ok {
 		if _, hasReact := devDeps["react"]; hasReact {
 			return true
 		}
@@ -475,7 +676,7 @@ func hasReactDependency(packageJsonPath string) bool {
 	return false
 }
 
-// fileExists checks if a file exists
+// fileExists checks if a file exists.
 func fileExists(filePath string) bool {
 	info, err := os.Stat(filePath)
 	if os.IsNotExist(err) {
@@ -484,8 +685,7 @@ func fileExists(filePath string) bool {
 	return !info.IsDir()
 }
 
-// findProjectRoot tries to find the project root directory by
-// looking for the templates directory
+// looking for the templates directory.
 func findProjectRoot(startDir string) string {
 	// First, check if we're running from the project directory
 	if _, err := os.Stat(filepath.Join(startDir, "templates")); err == nil {

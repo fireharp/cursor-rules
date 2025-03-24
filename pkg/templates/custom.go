@@ -2,32 +2,42 @@ package templates
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 )
 
-// CreateCustomTemplate interactively creates a custom template
+// CreateCustomTemplate interactively creates a custom template.
 func CreateCustomTemplate(targetDir string) error {
 	reader := bufio.NewReader(os.Stdin)
 
 	// Get template name
 	fmt.Print("Enter a name for your custom template: ")
-	name, _ := reader.ReadString('\n')
+	name, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read template name: %w", err)
+	}
 	name = strings.TrimSpace(name)
 
 	if name == "" {
-		return fmt.Errorf("template name cannot be empty")
+		return errors.New("template name cannot be empty")
 	}
 
 	// Get description
 	fmt.Print("Enter a description: ")
-	description, _ := reader.ReadString('\n')
+	description, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read description: %w", err)
+	}
 	description = strings.TrimSpace(description)
 
 	// Get glob patterns
 	fmt.Print("Enter glob patterns (comma-separated, e.g., '**/*.py, src/*.js'): ")
-	globsInput, _ := reader.ReadString('\n')
+	globsInput, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read glob patterns: %w", err)
+	}
 	globsInput = strings.TrimSpace(globsInput)
 
 	var globs []string
@@ -43,13 +53,19 @@ func CreateCustomTemplate(targetDir string) error {
 
 	// Get alwaysApply
 	fmt.Print("Always apply this template? (y/n): ")
-	alwaysApplyInput, _ := reader.ReadString('\n')
+	alwaysApplyInput, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read alwaysApply input: %w", err)
+	}
 	alwaysApplyInput = strings.TrimSpace(alwaysApplyInput)
-	alwaysApply := strings.ToLower(alwaysApplyInput) == "y"
+	alwaysApply := strings.EqualFold(alwaysApplyInput, "y")
 
 	// Get filename
 	fmt.Print("Enter a filename (without extension): ")
-	filename, _ := reader.ReadString('\n')
+	filename, err := reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("failed to read filename: %w", err)
+	}
 	filename = strings.TrimSpace(filename)
 
 	if filename == "" {
@@ -64,7 +80,10 @@ func CreateCustomTemplate(targetDir string) error {
 	fmt.Println("\nEnter template content (enter 'EOF' on a new line when finished):")
 	var contentLines []string
 	for {
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read content line: %w", err)
+		}
 		line = strings.TrimSuffix(line, "\n")
 
 		if line == "EOF" {
@@ -75,7 +94,7 @@ func CreateCustomTemplate(targetDir string) error {
 	}
 
 	if len(contentLines) == 0 {
-		return fmt.Errorf("template content cannot be empty")
+		return errors.New("template content cannot be empty")
 	}
 
 	// Create the template
@@ -92,7 +111,7 @@ func CreateCustomTemplate(targetDir string) error {
 	return CreateTemplate(targetDir, customTemplate)
 }
 
-// ScanTemplatesDir scans a directory for existing templates
+// ScanTemplatesDir scans a directory for existing templates.
 func ScanTemplatesDir(dir string) ([]string, error) {
 	// Ensure directory exists
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -114,7 +133,7 @@ func ScanTemplatesDir(dir string) ([]string, error) {
 	return templates, nil
 }
 
-// ListExistingTemplates lists templates in the target directory
+// ListExistingTemplates lists templates in the target directory.
 func ListExistingTemplates(dir string) error {
 	templates, err := ScanTemplatesDir(dir)
 	if err != nil {

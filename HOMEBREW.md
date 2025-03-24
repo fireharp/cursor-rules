@@ -24,6 +24,7 @@ This document explains how to set up a Homebrew tap repository for the cursor-ru
    ```
 
 4. Commit and push the directory:
+
    ```bash
    git add Formula
    git commit -m "Add Formula directory"

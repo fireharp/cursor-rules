@@ -13,6 +13,15 @@ cursor-rules init
 
 # Auto-detect project type and setup appropriate rules
 cursor-rules setup
+
+# Share your rules with others
+cursor-rules share shared-rules.json --embed-content
+
+# Restore rules from a shared file
+cursor-rules restore shared-rules.json --auto-resolve rename
+
+# Restore rules from a URL
+cursor-rules restore https://example.com/shared-rules.json --auto-resolve rename
 ```
 
 ## About
@@ -23,6 +32,7 @@ This tool makes it easy to set up and manage `.cursor/rules` configuration for C
 - Pre-defined templates for frameworks (React, etc.)
 - Ability to create custom rule templates
 - Interactive CLI interface
+- Sharing and restoring rules between projects or users
 
 ## Usage
 
@@ -49,6 +59,8 @@ cursor-rules remove python
 
 # Reinstall / upgrade a rule
 cursor-rules upgrade python
+# 'update' is an alias for 'upgrade'
+cursor-rules update python
 
 # List installed rules
 cursor-rules list
@@ -59,6 +71,12 @@ cursor-rules list --detailed
 # Set lockfile location (project root or .cursor/rules)
 cursor-rules set-lock-location --root  # Store in project root
 cursor-rules set-lock-location         # Store in .cursor/rules
+
+# Share your rules with others
+cursor-rules share shared-rules.json --embed-content
+
+# Restore rules from a shared file
+cursor-rules restore shared-rules.json --auto-resolve rename
 ```
 
 ### Rule References
@@ -91,6 +109,48 @@ cursor-rules remove python-style
 # View detailed information about installed rules
 cursor-rules list --detailed
 ```
+
+### Sharing and Restoring Rules
+
+You can easily share your rules with others or transfer them between projects:
+
+```bash
+# Share your rules to a JSON file
+cursor-rules share shared-rules.json
+
+# Share with embedded content (includes the actual .mdc file contents)
+cursor-rules share shared-rules.json --embed-content
+
+# Share to a specific output location
+cursor-rules share /path/to/shared-rules.json --embed-content
+```
+
+When restoring rules from a shared file, you can specify how to handle conflicts:
+
+```bash
+# Restore rules from a shared file (will prompt for conflict resolution)
+cursor-rules restore shared-rules.json
+
+# Restore rules directly from a URL
+cursor-rules restore https://example.com/shared-rules.json
+
+# Automatically skip rules that would conflict
+cursor-rules restore shared-rules.json --auto-resolve skip
+
+# Automatically rename rules that would conflict
+cursor-rules restore shared-rules.json --auto-resolve rename
+
+# Automatically overwrite rules that would conflict
+cursor-rules restore shared-rules.json --auto-resolve overwrite
+```
+
+The shared rule format is a JSON file that contains:
+
+- Rule metadata (key, source type, reference)
+- Optional embedded content of the actual .mdc files
+- No sensitive information (paths are normalized)
+
+This makes it easy to share rule configurations between team members or across different projects while maintaining privacy.
 
 ### Lockfile Location
 
