@@ -1,0 +1,90 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Version of golang to install"
+        default: "1.23.0"
+        type: string
+      task-version:
+        description: "Version of task to install (https://taskfile.dev)"
+        default: "3.29.1"
+        type: string
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup go-task
+        uses: pnorton5432/setup-task@v1
+        with:
+          task-version: ${{ inputs.task-version }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: false
+      - name: Install nilaway
+        run: go install go.uber.org/nilaway/cmd/nilaway@latest
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.64.5
+          args: --timeout=5m
+      - name: Run other linters
+        run: |
+          task lint-nilaway
+          task lint-md
+          task lint-vuln
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup go-task
+        uses: pnorton5432/setup-task@v1
+        with:
+          task-version: ${{ inputs.task-version }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: false
+      - name: Run tests with coverage
+        run: task test-coverage
+      - name: Upload coverage as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage.out
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          if (( $(echo "$COVERAGE < 70" | bc -l) )); then
+            echo "Test coverage is below 70%: $COVERAGE%"
+            echo "Consider adding more tests to improve coverage"
+          fi
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup go-task
+        uses: pnorton5432/setup-task@v1
+        with:
+          task-version: ${{ inputs.task-version }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: false
+      - name: Build binary
+        run: task build
+      - name: Check goreleaser config
+        run: |
+          go install github.com/goreleaser/goreleaser@latest
+          goreleaser check
