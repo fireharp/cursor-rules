@@ -248,24 +248,36 @@ func CreateTemplate(targetDir string, tmpl Template) error {
 func ListAvailableTemplates() {
 	for _, category := range Categories {
 		if len(category.Templates) > 0 {
-			fmt.Printf("Available %s Templates:\n", category.Name)
-
-			for key, tmpl := range category.Templates {
-				fmt.Printf("  - %s: %s", key, tmpl.Description)
-
-				if len(tmpl.Globs) > 0 {
-					fmt.Printf(" (globs: %s", strings.Join(tmpl.Globs, ", "))
-					if tmpl.AlwaysApply {
-						fmt.Printf(", always apply")
-					}
-					fmt.Printf(")")
-				} else if tmpl.AlwaysApply {
-					fmt.Printf(" (always apply)")
-				}
-
-				fmt.Println()
+			fmt.Printf("\n%s:\n", category.Name)
+			for key, template := range category.Templates {
+				fmt.Printf("  %s - %s\n", key, template.Description)
 			}
-			fmt.Println()
 		}
 	}
+}
+
+// GetTemplate returns the content of a template.
+func GetTemplate(category, key string) (string, error) {
+	cat, ok := Categories[category]
+	if !ok {
+		return "", fmt.Errorf("category not found: %s", category)
+	}
+
+	tmpl, ok := cat.Templates[key]
+	if !ok {
+		return "", fmt.Errorf("template not found: %s", key)
+	}
+
+	return tmpl.Content, nil
+}
+
+// FindTemplateByName looks for a template by its key across all categories.
+func FindTemplateByName(key string) (Template, error) {
+	for _, category := range Categories {
+		if tmpl, ok := category.Templates[key]; ok {
+			return tmpl, nil
+		}
+	}
+
+	return Template{}, fmt.Errorf("template not found: %s", key)
 }
