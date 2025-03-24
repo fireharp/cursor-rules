@@ -232,8 +232,7 @@ WHAT WAS DONE:
 
 ---
 
-MEMO:
-The updated README now follows a more user-focused structure, presenting the most immediately useful information first. New users can quickly get started with the top Quick Start section, then learn more about usage patterns, while development and installation details are appropriately placed at the bottom for those who need them. This organization better aligns with the simplified command interface that now relies entirely on reference-based rule addition.
+MEMO: The updated README now follows a more user-focused structure, presenting the most immediately useful information first. New users can quickly get started with the top Quick Start section, then learn more about usage patterns, while development and installation details are appropriately placed at the bottom for those who need them. This organization better aligns with the simplified command interface that now relies entirely on reference-based rule addition.
 
 ## TS: 2025-03-23 21:19:24 CET
 
@@ -279,3 +278,21 @@ WHAT WAS DONE:
 MEMO:
 
 The share and restore functionality enables easy transfer of rules between projects or users. The implemented JSON format includes rule metadata and can optionally embed the actual rule content. When restoring shared rules, users can choose how to handle conflicts (skip/rename/overwrite) using the --auto-resolve flag. This feature is particularly useful for team collaboration and for maintaining consistent rule sets across multiple projects.
+
+## TS: 2025-03-23 23:47:32 CET
+
+## PROBLEM: Restore command only worked with local files, not URLs
+
+WHAT WAS DONE:
+
+- Enhanced RestoreFromShared function to detect URLs and download content from them
+- Updated command-line help text to indicate URL support
+- Added detailed usage examples in README.md showing URL-based restoration
+- Improved error handling for network failures
+- Ensured consistent behavior between local file and URL-based restoration
+
+---
+
+MEMO:
+
+This enhancement allows users to restore rules directly from URLs, making it easier to share rules across teams without having to download the file first. Users can now run `cursor-rules restore https://example.com/shared-rules.json` to directly import rules from a web source. This is particularly useful for teams that maintain a centralized repository of rule configurations on a shared server or for accessing rules directly from GitHub or other hosting services.
