@@ -44,6 +44,12 @@ func addRuleImpl(cursorDir, category, ruleKey string) error {
 
 	// Write to .cursor/rules/{ruleKey}.mdc
 	targetPath := filepath.Join(cursorDir, ruleKey+".mdc")
+
+	// Ensure parent directories exist for hierarchical keys
+	if err := ensureRuleDirectory(cursorDir, ruleKey); err != nil {
+		return fmt.Errorf("failed preparing directory for rule '%s': %w", ruleKey, err)
+	}
+
 	err = os.WriteFile(targetPath, []byte(content), 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to write rule file: %w", err)

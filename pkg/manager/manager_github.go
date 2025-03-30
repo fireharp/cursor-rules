@@ -54,6 +54,12 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 
 	// Write to .cursor/rules/key.mdc
 	targetPath := filepath.Join(cursorDir, key+".mdc")
+
+	// Ensure parent directories exist for hierarchical keys
+	if err := ensureRuleDirectory(cursorDir, key); err != nil {
+		return RuleSource{}, fmt.Errorf("failed preparing directory for rule '%s': %w", key, err)
+	}
+
 	err = os.WriteFile(targetPath, content, 0o644)
 	if err != nil {
 		return RuleSource{}, fmt.Errorf("failed to write rule file: %w", err)
@@ -173,6 +179,11 @@ func handleLocalFile(cursorDir, ref string, isAbs bool) (RuleSource, error) {
 	ruleKey := generateRuleKey(ref)
 	destFilename := ruleKey + ".mdc"
 	destPath := filepath.Join(cursorDir, destFilename)
+
+	// Ensure parent directories exist for hierarchical keys
+	if err := ensureRuleDirectory(cursorDir, ruleKey); err != nil {
+		return RuleSource{}, fmt.Errorf("failed preparing directory for rule '%s': %w", ruleKey, err)
+	}
 
 	// 4. Write to .cursor/rules
 	err = os.WriteFile(destPath, data, 0o600)
