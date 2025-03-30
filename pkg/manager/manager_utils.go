@@ -247,6 +247,8 @@ func matchGlob(g glob.Glob, path string) bool {
 
 // generateRuleKey creates a rule key from a reference.
 func generateRuleKey(ref string) string {
+	fmt.Printf("Debug: generateRuleKey: input ref='%s'\n", ref)
+
 	// For GitHub URLs, extract owner/repo/path
 	if isGitHubBlobURL(ref) {
 		matches := githubBlobPattern.FindStringSubmatch(ref)
@@ -266,11 +268,15 @@ func generateRuleKey(ref string) string {
 				// For cursor-rules-collection, use username/path format
 				// Remove the .mdc extension for cleaner keys
 				pathKey := strings.TrimSuffix(path, filepath.Ext(path))
-				return owner + "/" + pathKey
+				key := owner + "/" + pathKey
+				fmt.Printf("Debug: generateRuleKey: GitHub cursor-rules-collection key='%s'\n", key)
+				return key
 			} else {
 				// For other repos, include the repo name in the path
 				// owner/repo/path format
-				return owner + "/" + repo + "/" + baseName
+				key := owner + "/" + repo + "/" + baseName
+				fmt.Printf("Debug: generateRuleKey: GitHub other repo key='%s'\n", key)
+				return key
 			}
 		}
 	}
@@ -279,7 +285,9 @@ func generateRuleKey(ref string) string {
 	if isUsernameRule(ref) {
 		username, rule, _ := parseUsernameRule(ref)
 		// Use namespace format: username/rule
-		return username + "/" + rule
+		key := username + "/" + rule
+		fmt.Printf("Debug: generateRuleKey: username/rule key='%s'\n", key)
+		return key
 	}
 
 	// For username/path/rule format with 3+ parts
@@ -295,34 +303,69 @@ func generateRuleKey(ref string) string {
 				pathParts[len(pathParts)-1] = strings.TrimSuffix(lastPart, ".mdc")
 				pathWithoutExt = strings.Join(pathParts, "/")
 			}
-			return username + "/" + pathWithoutExt
+			key := username + "/" + pathWithoutExt
+			fmt.Printf("Debug: generateRuleKey: username/path/rule key='%s'\n", key)
+			return key
 		}
 	}
 
 	// For username/rule:sha or username/rule@tag format
 	if isUsernameRuleWithSha(ref) {
 		username, rule, _, _ := parseUsernameRuleWithSha(ref)
-		return username + "/" + rule
+		key := username + "/" + rule
+		fmt.Printf("Debug: generateRuleKey: username/rule:sha key='%s'\n", key)
+		return key
 	}
 
 	if isUsernameRuleWithTag(ref) {
 		username, rule, _, _ := parseUsernameRuleWithTag(ref)
-		return username + "/" + rule
+		key := username + "/" + rule
+		fmt.Printf("Debug: generateRuleKey: username/rule@tag key='%s'\n", key)
+		return key
 	}
 
-	// For file paths, use a source-prefixed format to avoid conflicts
-	base := filepath.Base(ref)
-	ext := filepath.Ext(base)
-	baseWithoutExt := strings.TrimSuffix(base, ext)
-
+	// For file paths, create more specific keys that preserve more path information
 	if isAbsolutePath(ref) {
-		return "local/abs/" + baseWithoutExt
+		// Get just the filename without extension
+		base := filepath.Base(ref)
+		ext := filepath.Ext(base)
+		baseWithoutExt := strings.TrimSuffix(base, ext)
+
+		// Hash part of the path to avoid too long keys but still maintain uniqueness
+		// Only hash the directory part, not the filename
+		dir := filepath.Dir(ref)
+		hasher := sha256.New()
+		hasher.Write([]byte(dir))
+		pathHash := hex.EncodeToString(hasher.Sum(nil))[:8] // Use first 8 chars of hash
+
+		key := "local/abs/" + pathHash + "/" + baseWithoutExt
+		fmt.Printf("Debug: generateRuleKey: absolute path key='%s'\n", key)
+		return key
 	} else if isRelativePath(ref) {
-		return "local/rel/" + baseWithoutExt
+		// For relative paths, try to preserve the structure
+		// Clean the path first to handle ./ and ../
+		cleanPath := filepath.Clean(ref)
+
+		// Remove the extension
+		ext := filepath.Ext(cleanPath)
+		pathWithoutExt := strings.TrimSuffix(cleanPath, ext)
+
+		// Replace path separators with - to avoid creating nested directories
+		// but still maintain path structure information
+		normalized := strings.ReplaceAll(pathWithoutExt, string(filepath.Separator), "-")
+
+		// Remove any leading ./ or ../
+		normalized = strings.TrimPrefix(normalized, "./")
+		normalized = strings.TrimPrefix(normalized, "../")
+
+		key := "local/rel/" + normalized
+		fmt.Printf("Debug: generateRuleKey: relative path key='%s'\n", key)
+		return key
 	}
 
 	// For built-in templates, prefix with built-in to avoid conflicts
-	return "built-in/" + baseWithoutExt
+	fmt.Printf("Debug: generateRuleKey: defaulting to built-in/ prefix\n")
+	return "built-in/" + ref
 }
 
 // fileExists checks if a file exists.
@@ -463,4 +506,25 @@ func recursivelyListGitHubFiles(ctx context.Context, owner, repo, ref, path stri
 	}
 
 	return matches, nil
+}
+
+// ensureRuleDirectory ensures parent directories exist for a rule key.
+// This centralized helper function handles directory creation for hierarchical keys.
+func ensureRuleDirectory(cursorDir, ruleKey string) error {
+	// Only attempt to create directories if the key is hierarchical
+	if strings.Contains(ruleKey, "/") {
+		// Construct the full *file* path first
+		targetPath := filepath.Join(cursorDir, ruleKey+".mdc")
+		// Get the *directory* path containing the file
+		dirPath := filepath.Dir(targetPath)
+		// Create the directory and any necessary parents
+		// 0o755 provides standard directory permissions (read/write/execute for owner, read/execute for group/others)
+		err := os.MkdirAll(dirPath, 0o755)
+		if err != nil {
+			// Wrap the error for better context
+			return fmt.Errorf("failed to create directory '%s': %w", dirPath, err)
+		}
+	}
+	// Return nil if no directory creation was needed or if it succeeded
+	return nil
 }

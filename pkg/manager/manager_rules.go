@@ -185,27 +185,39 @@ func handleUsernameRule(ctx context.Context, cursorDir, ref string) (RuleSource,
 		return RuleSource{}, fmt.Errorf("invalid username/rule format: %s", ref)
 	}
 
+	fmt.Printf("Debug: handleUsernameRule: username='%s', ruleName='%s'\n", username, ruleName)
+
 	// First, try to find it in username/cursor-rules-collection repo
 	githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s.mdc", username, ruleName)
+	fmt.Printf("Debug: handleUsernameRule: trying URL: %s\n", githubURL)
+
 	rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 
 	if err == nil {
 		// Found in the cursor-rules-collection repo
 		rule.SourceType = SourceTypeGitHubShorthand
 		rule.Reference = ref // Store the original reference
+		fmt.Printf("Debug: handleUsernameRule: Found rule at primary URL\n")
 		return rule, nil
 	}
 
+	fmt.Printf("Debug: handleUsernameRule: Primary URL failed with error: %v\n", err)
+
 	// If not found, try with potential paths (could be nested)
 	githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s/%s.mdc", username, ruleName, ruleName)
+	fmt.Printf("Debug: handleUsernameRule: trying fallback URL: %s\n", githubURL)
+
 	rule, err = handleGitHubBlob(ctx, cursorDir, githubURL)
 
 	if err == nil {
 		// Found in the cursor-rules-collection repo in a subdirectory
 		rule.SourceType = SourceTypeGitHubShorthand
 		rule.Reference = ref // Store the original reference
+		fmt.Printf("Debug: handleUsernameRule: Found rule at fallback URL\n")
 		return rule, nil
 	}
+
+	fmt.Printf("Debug: handleUsernameRule: Fallback URL failed with error: %v\n", err)
 
 	return RuleSource{}, fmt.Errorf("rule not found in username/cursor-rules-collection: %s", ref)
 }
@@ -217,6 +229,8 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 	if !ok || len(pathParts) < 1 {
 		return RuleSource{}, fmt.Errorf("invalid username/path/rule format: %s", ref)
 	}
+
+	fmt.Printf("Debug: handleUsernamePathRule: username='%s', pathParts=%v\n", username, pathParts)
 
 	// First, try to interpret it as username/path/to/rule in cursor-rules-collection
 	if len(pathParts) >= 1 {
@@ -239,18 +253,23 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 				username, pathToRule, ruleFile)
 		}
 
+		fmt.Printf("Debug: handleUsernamePathRule: trying URL: %s\n", githubURL)
+
 		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 		if err == nil {
 			// Found in the cursor-rules-collection repo
 			rule.SourceType = SourceTypeGitHubShorthand
 			rule.Reference = ref // Store the original reference
+			fmt.Printf("Debug: handleUsernamePathRule: Found rule in cursor-rules-collection\n")
 			return rule, nil
 		}
+
+		fmt.Printf("Debug: handleUsernamePathRule: cursor-rules-collection URL failed with error: %v\n", err)
 	}
 
-	// If not found, try to interpret as username/repo/path/to/rule.mdc
+	// As a fallback, attempt to interpret it as username/repo/path/to/rule.mdc
 	if len(pathParts) >= 2 {
-		repo := pathParts[0]
+		repoName := pathParts[0]
 		remainingPath := strings.Join(pathParts[1:], "/")
 
 		// If the last part already has .mdc extension, don't add it again
@@ -259,18 +278,23 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 		}
 
 		githubURL := fmt.Sprintf("https://github.com/%s/%s/blob/main/%s",
-			username, repo, remainingPath)
+			username, repoName, remainingPath)
+
+		fmt.Printf("Debug: handleUsernamePathRule: trying fallback URL (any repo): %s\n", githubURL)
 
 		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 		if err == nil {
-			// Found in the specified repo
+			// Found in the other repo
 			rule.SourceType = SourceTypeGitHubRepoPath
 			rule.Reference = ref // Store the original reference
+			fmt.Printf("Debug: handleUsernamePathRule: Found rule in other repo\n")
 			return rule, nil
 		}
+
+		fmt.Printf("Debug: handleUsernamePathRule: fallback URL failed with error: %v\n", err)
 	}
 
-	return RuleSource{}, fmt.Errorf("rule not found in any matching repository: %s", ref)
+	return RuleSource{}, fmt.Errorf("rule not found in any repo: %s", ref)
 }
 
 // handleUsernameRuleWithSha handles a reference in the username/rule:sha format.
@@ -553,6 +577,12 @@ func handleGlobPattern(ctx context.Context, cursorDir, ref string) error {
 		return fmt.Errorf("invalid glob pattern: %w", err)
 	}
 
+	// Check if the pattern is a local path (contains ./ or / at start, or no username)
+	if username == "" && (strings.HasPrefix(pattern, "./") || strings.HasPrefix(pattern, "/") || !strings.Contains(pattern, "/")) {
+		// Handle local file glob pattern
+		return handleLocalGlobPattern(ctx, cursorDir, pattern, g)
+	}
+
 	// Check if we have a username
 	if username != "" {
 		// Try to find matching rules in username/cursor-rules-collection
@@ -561,6 +591,214 @@ func handleGlobPattern(ctx context.Context, cursorDir, ref string) error {
 		// Try to find matching templates
 		return handleTemplateGlobPattern(cursorDir, pattern, g)
 	}
+}
+
+// handleLocalGlobPattern handles glob patterns for local filesystem.
+func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g glob.Glob) error {
+	fmt.Printf("Debug: Processing local glob pattern: %s\n", pattern)
+
+	// Load lockfile once at the beginning
+	lock, err := LoadLockFile(cursorDir)
+	if err != nil {
+		return fmt.Errorf("failed to load lockfile: %w", err)
+	}
+
+	// Resolve pattern to absolute pattern if it's relative
+	var absolutePattern string
+	if strings.HasPrefix(pattern, "/") {
+		// Already absolute
+		absolutePattern = pattern
+	} else {
+		// Get current directory and join with pattern
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current working directory: %w", err)
+		}
+
+		// If pattern starts with ./, remove it
+		if strings.HasPrefix(pattern, "./") {
+			pattern = pattern[2:]
+		}
+
+		absolutePattern = filepath.Join(cwd, pattern)
+	}
+
+	fmt.Printf("Debug: Using absolute glob pattern: %s\n", absolutePattern)
+
+	// Use filepath.Glob to expand the pattern
+	matchedFiles, err := filepath.Glob(absolutePattern)
+	if err != nil {
+		return fmt.Errorf("failed to expand glob pattern: %w", err)
+	}
+
+	fmt.Printf("Debug: Found %d matching files\n", len(matchedFiles))
+
+	if len(matchedFiles) == 0 {
+		return fmt.Errorf("no files matched the pattern: %s", pattern)
+	}
+
+	// Track success/failure
+	successCount := 0
+	errorCount := 0
+
+	// Collection of new rules
+	newRules := []RuleSource{}
+
+	// Process each matching file
+	for _, filePath := range matchedFiles {
+		// Skip directories
+		info, err := os.Stat(filePath)
+		if err != nil {
+			fmt.Printf("Warning: Could not stat file %s: %v\n", filePath, err)
+			errorCount++
+			continue
+		}
+
+		if info.IsDir() {
+			fmt.Printf("Skipping directory: %s\n", filePath)
+			continue
+		}
+
+		// Skip non-mdc files
+		if !strings.HasSuffix(filePath, ".mdc") {
+			fmt.Printf("Skipping non-mdc file: %s\n", filePath)
+			continue
+		}
+
+		fmt.Printf("Processing file: %s\n", filePath)
+
+		// Process the file - create a helper function that returns the RuleSource without updating lockfile
+		rule, err := processLocalFile(cursorDir, filePath, true)
+		if err != nil {
+			fmt.Printf("Warning: Could not process file %s: %v\n", filePath, err)
+			errorCount++
+			continue
+		}
+
+		// Check if rule is already installed
+		if lock.IsInstalled(rule.Key) {
+			fmt.Printf("Rule already installed: %s\n", rule.Key)
+			continue
+		}
+
+		// Check if we've already added this rule in the current operation
+		alreadyAdded := false
+		for _, r := range newRules {
+			if r.Key == rule.Key {
+				alreadyAdded = true
+				break
+			}
+		}
+
+		if alreadyAdded {
+			fmt.Printf("Rule already added in this operation: %s\n", rule.Key)
+			continue
+		}
+
+		// Add rule to our collection
+		newRules = append(newRules, rule)
+		successCount++
+	}
+
+	// Update lockfile with all new rules
+	if len(newRules) > 0 {
+		lock.Rules = append(lock.Rules, newRules...)
+
+		// For backwards compatibility
+		for _, rule := range newRules {
+			lock.Installed = append(lock.Installed, rule.Key)
+		}
+
+		err = lock.Save(cursorDir)
+		if err != nil {
+			return fmt.Errorf("failed to update lockfile: %w", err)
+		}
+	}
+
+	// Report results
+	if successCount == 0 {
+		return fmt.Errorf("no valid rules found for pattern: %s", pattern)
+	}
+
+	fmt.Printf("Added %d rules matching pattern %s (errors: %d)\n", successCount, pattern, errorCount)
+	return nil
+}
+
+// processLocalFile processes a local file and returns a RuleSource without updating the lockfile.
+// This is a helper function extracted from handleLocalFile to be used with glob patterns.
+func processLocalFile(cursorDir, filePath string, isAbs bool) (RuleSource, error) {
+	// 1. Validate path and ensure it's readable
+	var fullPath string
+	if isAbs {
+		fullPath = filePath
+	} else {
+		var err error
+		fullPath, err = filepath.Abs(filePath)
+		if err != nil {
+			return RuleSource{}, fmt.Errorf("failed to resolve path %s: %w", filePath, err)
+		}
+	}
+
+	// Check if the file exists and is readable
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return RuleSource{}, fmt.Errorf("failed to access file %s: %w", fullPath, err)
+	}
+
+	if info.IsDir() {
+		return RuleSource{}, fmt.Errorf("%s is a directory, not a file", fullPath)
+	}
+
+	// 2. Read the file
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return RuleSource{}, fmt.Errorf("failed to read file %s: %w", fullPath, err)
+	}
+
+	// 3. Generate rule key and determine destination filename
+	ruleKey := generateRuleKey(filePath)
+	destFilename := ruleKey + ".mdc"
+	destPath := filepath.Join(cursorDir, destFilename)
+
+	// Ensure parent directories exist for hierarchical keys
+	if err := ensureRuleDirectory(cursorDir, ruleKey); err != nil {
+		return RuleSource{}, fmt.Errorf("failed preparing directory for rule '%s': %w", ruleKey, err)
+	}
+
+	// 4. Write to .cursor/rules
+	err = os.WriteFile(destPath, data, 0o600)
+	if err != nil {
+		return RuleSource{}, fmt.Errorf("failed to write to %s: %w", destPath, err)
+	}
+
+	// 5. Create and return RuleSource
+	sourceType := SourceTypeLocalAbs
+	if !isAbs {
+		sourceType = SourceTypeLocalRel
+		// Use relative path if possible for portability
+		// Get current working directory
+		cwd, err := os.Getwd()
+		if err == nil {
+			rel, err := filepath.Rel(cwd, fullPath)
+			if err == nil {
+				fullPath = rel
+			}
+		}
+	}
+
+	// Create the rule source
+	result := RuleSource{
+		Key:        ruleKey,
+		SourceType: sourceType,
+		Reference:  filePath,
+		LocalFiles: []string{destFilename},
+		// Calculate and store content hash for future modification checks
+		ContentSHA256: calculateSHA256(data),
+		// Store the original glob pattern
+		GlobPattern: filePath,
+	}
+
+	return result, nil
 }
 
 // handleUsernameGlobPattern handles glob patterns with a username.
