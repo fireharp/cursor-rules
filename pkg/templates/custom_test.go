@@ -23,14 +23,14 @@ func TestScanTemplatesDir(t *testing.T) {
 
 	for _, file := range testFiles {
 		filePath := filepath.Join(tempDir, file)
-		if err := os.WriteFile(filePath, []byte("test content"), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte("test content"), 0o644); err != nil {
 			t.Fatalf("Failed to create test file %s: %v", file, err)
 		}
 	}
 
 	// Also create a non-MDC file (should be ignored)
 	nonMdcFile := filepath.Join(tempDir, "test.txt")
-	if err := os.WriteFile(nonMdcFile, []byte("not a template"), 0644); err != nil {
+	if err := os.WriteFile(nonMdcFile, []byte("not a template"), 0o644); err != nil {
 		t.Fatalf("Failed to create non-MDC file: %v", err)
 	}
 

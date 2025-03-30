@@ -87,7 +87,7 @@ when we work with UI.Vision JSON macros we should use docs from docs/ folder
 # How to Use the Ui.Vision Documentation
 `
 	testFilePath := filepath.Join(tempDir, "test-template.mdc")
-	err = os.WriteFile(testFilePath, []byte(templateContent), 0644)
+	err = os.WriteFile(testFilePath, []byte(templateContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create test template file: %v", err)
 	}
@@ -137,7 +137,7 @@ alwaysApply: true
 # Multiple Globs Test
 `
 	testFilePath := filepath.Join(tempDir, "test-multiple-globs.mdc")
-	err = os.WriteFile(testFilePath, []byte(templateContent), 0644)
+	err = os.WriteFile(testFilePath, []byte(templateContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create test template file: %v", err)
 	}

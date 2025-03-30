@@ -6,9 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
-// Template represents a Cursor rule template
+// Template represents a Cursor rule template.
 type Template struct {
 	Name        string
 	Description string
@@ -19,7 +20,7 @@ type Template struct {
 	Category    string
 }
 
-// TemplateCategory represents a category of templates (e.g., languages, frameworks)
+// TemplateCategory represents a category of templates (e.g., languages, frameworks).
 type TemplateCategory struct {
 	Name        string
 	Description string
@@ -27,11 +28,11 @@ type TemplateCategory struct {
 }
 
 var (
-	// Categories of templates
+	// Categories of templates.
 	Categories = map[string]*TemplateCategory{}
 )
 
-// LoadTemplates loads all templates from the template directories
+// LoadTemplates loads all templates from the template directories.
 func LoadTemplates(baseDir string) error {
 	// Define categories
 	Categories["languages"] = &TemplateCategory{
@@ -53,7 +54,7 @@ func LoadTemplates(baseDir string) error {
 	}
 
 	// Walk through the template directories
-	for category, _ := range Categories {
+	for category := range Categories {
 		categoryDir := filepath.Join(baseDir, "templates", category)
 		if _, err := os.Stat(categoryDir); os.IsNotExist(err) {
 			fmt.Printf("Template directory not found: %s\n", categoryDir)
@@ -85,7 +86,7 @@ func LoadTemplates(baseDir string) error {
 	return nil
 }
 
-// parseTemplateFile parses a template markdown file with frontmatter
+// parseTemplateFile parses a template markdown file with frontmatter.
 func parseTemplateFile(filePath, category string) (Template, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -124,11 +125,12 @@ func parseTemplateFile(filePath, category string) (Template, error) {
 
 		// Parse frontmatter
 		if frontMatter {
-			if strings.HasPrefix(line, "title:") {
+			switch {
+			case strings.HasPrefix(line, "title:"):
 				title = strings.TrimSpace(strings.TrimPrefix(line, "title:"))
-			} else if strings.HasPrefix(line, "description:") {
+			case strings.HasPrefix(line, "description:"):
 				description = strings.TrimSpace(strings.TrimPrefix(line, "description:"))
-			} else if strings.HasPrefix(line, "glob:") {
+			case strings.HasPrefix(line, "glob:"):
 				// For backward compatibility with single glob
 				glob := strings.TrimSpace(strings.TrimPrefix(line, "glob:"))
 				// Remove quotes if present
@@ -136,7 +138,7 @@ func parseTemplateFile(filePath, category string) (Template, error) {
 				if glob != "" {
 					globs = append(globs, glob)
 				}
-			} else if strings.HasPrefix(line, "globs:") {
+			case strings.HasPrefix(line, "globs:"):
 				// New plural globs field
 				globsStr := strings.TrimSpace(strings.TrimPrefix(line, "globs:"))
 				// Remove quotes if present
@@ -151,9 +153,9 @@ func parseTemplateFile(filePath, category string) (Template, error) {
 						globs = append(globs, globsStr)
 					}
 				}
-			} else if strings.HasPrefix(line, "alwaysApply:") {
+			case strings.HasPrefix(line, "alwaysApply:"):
 				alwaysApplyStr := strings.TrimSpace(strings.TrimPrefix(line, "alwaysApply:"))
-				alwaysApply = strings.ToLower(alwaysApplyStr) == "true"
+				alwaysApply = strings.EqualFold(alwaysApplyStr, "true")
 			}
 		} else if frontMatterDone {
 			// Content starts after frontmatter
@@ -170,7 +172,16 @@ func parseTemplateFile(filePath, category string) (Template, error) {
 		title = filepath.Base(filePath)
 		title = strings.TrimSuffix(title, ".mdc")
 		title = strings.ReplaceAll(title, "-", " ")
-		title = strings.Title(title)
+		// Title case the title (first letter of each word uppercase)
+		words := strings.Fields(title)
+		for i, word := range words {
+			if word != "" {
+				r := []rune(word)
+				r[0] = unicode.ToTitle(r[0])
+				words[i] = string(r)
+			}
+		}
+		title = strings.Join(words, " ")
 	}
 
 	filename := filepath.Base(filePath)
@@ -186,7 +197,7 @@ func parseTemplateFile(filePath, category string) (Template, error) {
 	}, nil
 }
 
-// CreateTemplate writes a template to the specified directory
+// CreateTemplate writes a template to the specified directory.
 func CreateTemplate(targetDir string, tmpl Template) error {
 	filePath := filepath.Join(targetDir, tmpl.Filename)
 
@@ -203,9 +214,10 @@ func CreateTemplate(targetDir string, tmpl Template) error {
 	builder.WriteString(fmt.Sprintf("description: %s\n", tmpl.Description))
 
 	// Write globs
-	if len(tmpl.Globs) == 1 {
+	switch {
+	case len(tmpl.Globs) == 1:
 		builder.WriteString(fmt.Sprintf("globs: %s\n", tmpl.Globs[0]))
-	} else if len(tmpl.Globs) > 1 {
+	case len(tmpl.Globs) > 1:
 		builder.WriteString("globs: ")
 		for i, glob := range tmpl.Globs {
 			if i > 0 {
@@ -232,28 +244,40 @@ func CreateTemplate(targetDir string, tmpl Template) error {
 	return nil
 }
 
-// ListAvailableTemplates prints all available templates by category
+// ListAvailableTemplates prints all available templates by category.
 func ListAvailableTemplates() {
 	for _, category := range Categories {
 		if len(category.Templates) > 0 {
-			fmt.Printf("Available %s Templates:\n", category.Name)
-
-			for key, tmpl := range category.Templates {
-				fmt.Printf("  - %s: %s", key, tmpl.Description)
-
-				if len(tmpl.Globs) > 0 {
-					fmt.Printf(" (globs: %s", strings.Join(tmpl.Globs, ", "))
-					if tmpl.AlwaysApply {
-						fmt.Printf(", always apply")
-					}
-					fmt.Printf(")")
-				} else if tmpl.AlwaysApply {
-					fmt.Printf(" (always apply)")
-				}
-
-				fmt.Println()
+			fmt.Printf("\n%s:\n", category.Name)
+			for key, template := range category.Templates {
+				fmt.Printf("  %s - %s\n", key, template.Description)
 			}
-			fmt.Println()
 		}
 	}
+}
+
+// GetTemplate returns the content of a template.
+func GetTemplate(category, key string) (string, error) {
+	cat, ok := Categories[category]
+	if !ok {
+		return "", fmt.Errorf("category not found: %s", category)
+	}
+
+	tmpl, ok := cat.Templates[key]
+	if !ok {
+		return "", fmt.Errorf("template not found: %s", key)
+	}
+
+	return tmpl.Content, nil
+}
+
+// FindTemplateByName looks for a template by its key across all categories.
+func FindTemplateByName(key string) (Template, error) {
+	for _, category := range Categories {
+		if tmpl, ok := category.Templates[key]; ok {
+			return tmpl, nil
+		}
+	}
+
+	return Template{}, fmt.Errorf("template not found: %s", key)
 }
