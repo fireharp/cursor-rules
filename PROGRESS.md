@@ -205,3 +205,23 @@ WHAT WAS DONE: Fixed the generateRuleKey function to properly handle various pat
 ---
 
 MEMO: Proper key generation is essential for consistent rule references across different path formats. The fix ensures that all path formats (local paths, GitHub references, relative paths, glob patterns) produce consistent and predictable keys, which improves the reliability of rule management, especially when rules are shared between systems.
+
+## 2025-03-30 22:02:53 CEST
+
+---
+
+## PROBLEM: manager_rules.go file is too large, has complex control flow with goto statements, and the addRuleByReferenceImpl function has a large if/else chain
+
+WHAT WAS DONE: Started refactoring plan, created task file and made a backup of the original file before proceeding with changes
+
+MEMO: The refactoring will focus on implementing a Strategy pattern for different reference types, removing goto statements, and improving maintainability and testability
+
+## 2025-03-30 22:15:39 CEST
+
+---
+
+## PROBLEM: manager_rules.go file was too large, had complex control flow with goto statements, and the addRuleByReferenceImpl function had a large if/else chain
+
+## WHAT WAS DONE: Refactored manager_rules.go to use the Strategy Pattern, split code into multiple files, removed goto statements, extracted lockfile update logic to a separate function, and added improved documentation
+
+MEMO: The refactoring improves maintainability and testability by using a Registry of handlers for different reference types. New reference types can now be added by creating a new handler without modifying the core addRuleByReferenceImpl function.
