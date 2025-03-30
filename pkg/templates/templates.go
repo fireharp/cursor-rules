@@ -281,3 +281,17 @@ func FindTemplateByName(key string) (Template, error) {
 
 	return Template{}, fmt.Errorf("template not found: %s", key)
 }
+
+// ListTemplates returns all available templates across all categories.
+// This is used for glob pattern matching against templates.
+func ListTemplates() ([]Template, error) {
+	var templates []Template
+
+	for _, category := range Categories {
+		for _, tmpl := range category.Templates {
+			templates = append(templates, tmpl)
+		}
+	}
+
+	return templates, nil
+}

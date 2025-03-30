@@ -593,12 +593,43 @@ func handleUsernameGlobPattern(ctx context.Context, cursorDir, username, pattern
 		// Construct a new reference without the glob
 		fileRef := fmt.Sprintf("%s/%s", username, file)
 
-		// Try to add this rule
-		err := AddRuleByReference(cursorDir, fileRef)
+		// Directly construct GitHub URL to avoid recursive call to AddRuleByReference
+		githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s",
+			username, file)
+
+		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 		if err != nil {
 			fmt.Printf("Warning: Could not add rule %s: %v\n", fileRef, err)
 			errorCount++
 		} else {
+			// Found in the cursor-rules-collection repo
+			rule.SourceType = SourceTypeGitHubShorthand
+			rule.Reference = fileRef // Store the original reference
+
+			// Update lockfile with the new rule
+			lock, err := LoadLockFile(cursorDir)
+			if err != nil {
+				fmt.Printf("Warning: Could not load lockfile for %s: %v\n", fileRef, err)
+				errorCount++
+				continue
+			}
+
+			if lock.IsInstalled(rule.Key) {
+				fmt.Printf("Rule already installed: %s\n", rule.Key)
+				continue
+			}
+
+			lock.Rules = append(lock.Rules, rule)
+			// For backwards compatibility
+			lock.Installed = append(lock.Installed, rule.Key)
+
+			err = lock.Save(cursorDir)
+			if err != nil {
+				fmt.Printf("Warning: Could not update lockfile for %s: %v\n", fileRef, err)
+				errorCount++
+				continue
+			}
+
 			successCount++
 		}
 	}
@@ -631,14 +662,51 @@ func handleTemplateGlobPattern(cursorDir, pattern string, g glob.Glob) error {
 			continue
 		}
 
-		// Try to add this template
-		err := AddRule(cursorDir, tmpl.Category, tmpl.Name)
+		// Try to add this template directly instead of calling AddRule
+		content := tmpl.Content
+		targetPath := filepath.Join(cursorDir, tmpl.Name+".mdc")
+
+		// Write to .cursor/rules/{ruleName}.mdc
+		err := os.WriteFile(targetPath, []byte(content), 0o644)
 		if err != nil {
-			fmt.Printf("Warning: Could not add template %s: %v\n", tmpl.Name, err)
+			fmt.Printf("Warning: Could not write template %s: %v\n", tmpl.Name, err)
 			errorCount++
-		} else {
-			successCount++
+			continue
 		}
+
+		// Update lockfile
+		lock, err := LoadLockFile(cursorDir)
+		if err != nil {
+			fmt.Printf("Warning: Could not load lockfile for %s: %v\n", tmpl.Name, err)
+			errorCount++
+			continue
+		}
+
+		if lock.IsInstalled(tmpl.Name) {
+			fmt.Printf("Template already installed: %s\n", tmpl.Name)
+			continue
+		}
+
+		rule := RuleSource{
+			Key:        tmpl.Name,
+			SourceType: SourceTypeBuiltIn,
+			Reference:  tmpl.Name,
+			Category:   tmpl.Category,
+			LocalFiles: []string{targetPath},
+		}
+
+		lock.Rules = append(lock.Rules, rule)
+		// For backwards compatibility
+		lock.Installed = append(lock.Installed, tmpl.Name)
+
+		err = lock.Save(cursorDir)
+		if err != nil {
+			fmt.Printf("Warning: Could not update lockfile for %s: %v\n", tmpl.Name, err)
+			errorCount++
+			continue
+		}
+
+		successCount++
 	}
 
 	// Report results
