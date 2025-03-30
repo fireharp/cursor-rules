@@ -357,3 +357,97 @@ func TestResolveRuleFallback(t *testing.T) {
 	// Clean up test template
 	delete(templates.Categories["test"].Templates, "test-template")
 }
+
+// TestGetDefaultUsername tests that getDefaultUsername properly reads from config file
+func TestGetDefaultUsername(t *testing.T) {
+	// Save the original function to restore later
+	originalFunc := getDefaultUsername
+	defer func() {
+		getDefaultUsername = originalFunc
+	}()
+
+	// Create a temporary directory for test config
+	tempDir, err := os.MkdirTemp("", "cursor-rules-config-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configPath := filepath.Join(tempDir, "config.json")
+
+	// Test cases
+	tests := []struct {
+		name           string
+		configContent  string
+		envVar         bool
+		expectedResult string
+	}{
+		{
+			name:           "Valid config with username",
+			configContent:  `{"defaultUsername": "testuser"}`,
+			envVar:         true,
+			expectedResult: "testuser",
+		},
+		{
+			name:           "Empty username",
+			configContent:  `{"defaultUsername": ""}`,
+			envVar:         true,
+			expectedResult: "",
+		},
+		{
+			name:           "Invalid JSON",
+			configContent:  `{"defaultUsername": "testuser" - invalid json`,
+			envVar:         true,
+			expectedResult: "",
+		},
+		{
+			name:           "No username field",
+			configContent:  `{"otherField": "value"}`,
+			envVar:         true,
+			expectedResult: "",
+		},
+		{
+			name:           "Non-existent file",
+			configContent:  "",
+			envVar:         true, // Point to a path we don't create a file at
+			expectedResult: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Reset or set environment
+			if tc.envVar {
+				oldVal := os.Getenv("CURSOR_CONFIG_PATH")
+				os.Setenv("CURSOR_CONFIG_PATH", configPath)
+				defer os.Setenv("CURSOR_CONFIG_PATH", oldVal)
+			} else {
+				oldVal := os.Getenv("CURSOR_CONFIG_PATH")
+				os.Unsetenv("CURSOR_CONFIG_PATH")
+				defer os.Setenv("CURSOR_CONFIG_PATH", oldVal)
+			}
+
+			// Write the test config file if there is content
+			if tc.configContent != "" {
+				err := os.WriteFile(configPath, []byte(tc.configContent), 0644)
+				if err != nil {
+					t.Fatalf("Failed to write test config: %v", err)
+				}
+			} else {
+				// Make sure the file doesn't exist
+				os.Remove(configPath)
+			}
+
+			// Use the actual implementation for the test
+			getDefaultUsername = originalFunc
+
+			// Call the function being tested
+			result := getDefaultUsername()
+
+			// Check the result
+			if result != tc.expectedResult {
+				t.Errorf("Expected username '%s', got '%s'", tc.expectedResult, result)
+			}
+		})
+	}
+}

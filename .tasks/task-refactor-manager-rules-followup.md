@@ -18,7 +18,7 @@
 
 ### Low Priority
 
-- [ ] Step 9: Add specific unit tests for each handler's functionality
+- [x] Step 9: Add specific unit tests for each handler's functionality
 - [ ] Step 10: Review dependencies (especially `templates` in `manager_glob.go`)
 
 ## Full Task Description
