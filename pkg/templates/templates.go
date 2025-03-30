@@ -9,6 +9,9 @@ import (
 	"unicode"
 )
 
+// DEPRECATED: The templates system is deprecated and will be removed in a future version.
+// New implementations should use direct file references instead.
+
 // Template represents a Cursor rule template.
 type Template struct {
 	Name        string
@@ -33,7 +36,10 @@ var (
 )
 
 // LoadTemplates loads all templates from the template directories.
+// DEPRECATED: This function is deprecated and will be removed in a future version.
 func LoadTemplates(baseDir string) error {
+	fmt.Println("DEPRECATED: Templates are deprecated and will be removed in a future version.")
+
 	// Define categories
 	Categories["languages"] = &TemplateCategory{
 		Name:        "Languages",

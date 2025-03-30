@@ -128,7 +128,7 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 				// Found in the cursor-rules-collection repo
 				rule.SourceType = SourceTypeGitHubShorthand
 				rule.Reference = defaultRef // Store the resolved reference
-				goto updateLockfile
+				goto checkLockfile
 			}
 
 			// If not found, try with potential paths (could be nested)
@@ -140,7 +140,7 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 				// Found in the cursor-rules-collection repo in a subdirectory
 				rule.SourceType = SourceTypeGitHubShorthand
 				rule.Reference = defaultRef // Store the resolved reference
-				goto updateLockfile
+				goto checkLockfile
 			}
 		}
 
@@ -156,17 +156,48 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 		return fmt.Errorf("failed to process reference: %w", err)
 	}
 
-updateLockfile:
-	// Update lockfile with the new rule
+checkLockfile:
+	// Check if rule is already installed
 	lock, err := LoadLockFile(cursorDir)
 	if err != nil {
 		return fmt.Errorf("failed to load lockfile: %w", err)
 	}
 
+	// Check if rule is already installed and handle gracefully
 	if lock.IsInstalled(rule.Key) {
-		return fmt.Errorf("rule already installed: %s", rule.Key)
+		// Find the existing rule
+		var existingRule RuleSource
+		for _, r := range lock.Rules {
+			if r.Key == rule.Key {
+				existingRule = r
+				break
+			}
+		}
+
+		// If this is a GitHub rule, check if commits differ
+		if rule.ResolvedCommit != "" && existingRule.ResolvedCommit != "" &&
+			rule.ResolvedCommit != existingRule.ResolvedCommit {
+			fmt.Printf("Rule '%s' is already installed but has a different version.\n", rule.Key)
+			fmt.Printf("  Current commit: %s\n", existingRule.ResolvedCommit)
+			fmt.Printf("  New commit: %s\n", rule.ResolvedCommit)
+			fmt.Printf("To update, use: cursor-rules upgrade %s\n", rule.Key)
+			return nil
+		}
+
+		// If content hash is available, compare that
+		if rule.ContentSHA256 != "" && existingRule.ContentSHA256 != "" &&
+			rule.ContentSHA256 != existingRule.ContentSHA256 {
+			fmt.Printf("Rule '%s' is already installed but has different content.\n", rule.Key)
+			fmt.Printf("To update, use: cursor-rules upgrade %s\n", rule.Key)
+			return nil
+		}
+
+		// If we get here, the rule is the same or we can't determine differences
+		fmt.Printf("Rule '%s' is already installed and up-to-date.\n", rule.Key)
+		return nil
 	}
 
+	// Update lockfile with the new rule
 	lock.Rules = append(lock.Rules, rule)
 	// For backwards compatibility
 	lock.Installed = append(lock.Installed, rule.Key)
@@ -187,11 +218,11 @@ func handleUsernameRule(ctx context.Context, cursorDir, ref string) (RuleSource,
 		return RuleSource{}, fmt.Errorf("invalid username/rule format: %s", ref)
 	}
 
-	fmt.Printf("Debug: handleUsernameRule: username='%s', ruleName='%s'\n", username, ruleName)
+	Debugf("handleUsernameRule: username='%s', ruleName='%s'\n", username, ruleName)
 
 	// Try to find it in username/cursor-rules-collection repo at root level only
 	githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s.mdc", username, ruleName)
-	fmt.Printf("Debug: handleUsernameRule: trying URL: %s\n", githubURL)
+	Debugf("handleUsernameRule: trying URL: %s\n", githubURL)
 
 	rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 
@@ -199,11 +230,11 @@ func handleUsernameRule(ctx context.Context, cursorDir, ref string) (RuleSource,
 		// Found in the cursor-rules-collection repo
 		rule.SourceType = SourceTypeGitHubShorthand
 		rule.Reference = ref // Store the original reference
-		fmt.Printf("Debug: handleUsernameRule: Found rule at primary URL\n")
+		Debugf("handleUsernameRule: Found rule at primary URL\n")
 		return rule, nil
 	}
 
-	fmt.Printf("Debug: handleUsernameRule: Primary URL failed with error: %v\n", err)
+	Debugf("handleUsernameRule: Primary URL failed with error: %v\n", err)
 
 	// No subfolder fallback for username/rule format
 	// This is intentional - username/rule should only look for the rule at the root level
@@ -220,7 +251,7 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 		return RuleSource{}, fmt.Errorf("invalid username/path/rule format: %s", ref)
 	}
 
-	fmt.Printf("Debug: handleUsernamePathRule: username='%s', pathParts=%v\n", username, pathParts)
+	Debugf("handleUsernamePathRule: username='%s', pathParts=%v\n", username, pathParts)
 
 	// First, try to interpret it as username/path/to/rule in cursor-rules-collection
 	if len(pathParts) >= 1 {
@@ -243,18 +274,18 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 				username, pathToRule, ruleFile)
 		}
 
-		fmt.Printf("Debug: handleUsernamePathRule: trying URL: %s\n", githubURL)
+		Debugf("handleUsernamePathRule: trying URL: %s\n", githubURL)
 
 		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 		if err == nil {
 			// Found in the cursor-rules-collection repo
 			rule.SourceType = SourceTypeGitHubShorthand
 			rule.Reference = ref // Store the original reference
-			fmt.Printf("Debug: handleUsernamePathRule: Found rule in cursor-rules-collection\n")
+			Debugf("handleUsernamePathRule: Found rule in cursor-rules-collection\n")
 			return rule, nil
 		}
 
-		fmt.Printf("Debug: handleUsernamePathRule: cursor-rules-collection URL failed with error: %v\n", err)
+		Debugf("handleUsernamePathRule: cursor-rules-collection URL failed with error: %v\n", err)
 	}
 
 	// As a fallback, attempt to interpret it as username/repo/path/to/rule.mdc
@@ -270,18 +301,18 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 		githubURL := fmt.Sprintf("https://github.com/%s/%s/blob/main/%s",
 			username, repoName, remainingPath)
 
-		fmt.Printf("Debug: handleUsernamePathRule: trying fallback URL (any repo): %s\n", githubURL)
+		Debugf("handleUsernamePathRule: trying fallback URL (any repo): %s\n", githubURL)
 
 		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 		if err == nil {
 			// Found in the other repo
 			rule.SourceType = SourceTypeGitHubRepoPath
 			rule.Reference = ref // Store the original reference
-			fmt.Printf("Debug: handleUsernamePathRule: Found rule in other repo\n")
+			Debugf("handleUsernamePathRule: Found rule in other repo\n")
 			return rule, nil
 		}
 
-		fmt.Printf("Debug: handleUsernamePathRule: fallback URL failed with error: %v\n", err)
+		Debugf("handleUsernamePathRule: fallback URL failed with error: %v\n", err)
 	}
 
 	// Extra fallback: Try to handle the special case of "username/path/rule"
@@ -301,18 +332,18 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 		githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s",
 			username, fullPath)
 
-		fmt.Printf("Debug: handleUsernamePathRule: trying second fallback URL (nested structure): %s\n", githubURL)
+		Debugf("handleUsernamePathRule: trying second fallback URL (nested structure): %s\n", githubURL)
 
 		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
 		if err == nil {
 			// Found in the cursor-rules-collection repo with the nested structure
 			rule.SourceType = SourceTypeGitHubShorthand
 			rule.Reference = ref // Store the original reference
-			fmt.Printf("Debug: handleUsernamePathRule: Found rule in cursor-rules-collection nested structure\n")
+			Debugf("handleUsernamePathRule: Found rule in cursor-rules-collection nested structure\n")
 			return rule, nil
 		}
 
-		fmt.Printf("Debug: handleUsernamePathRule: second fallback URL failed with error: %v\n", err)
+		Debugf("handleUsernamePathRule: second fallback URL failed with error: %v\n", err)
 	}
 
 	return RuleSource{}, fmt.Errorf("rule not found in any repo: %s", ref)
@@ -616,7 +647,7 @@ func handleGlobPattern(ctx context.Context, cursorDir, ref string) error {
 
 // handleLocalGlobPattern handles glob patterns for local filesystem.
 func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g glob.Glob) error {
-	fmt.Printf("Debug: Processing local glob pattern: %s\n", pattern)
+	Debugf("Processing local glob pattern: %s\n", pattern)
 
 	// Load lockfile once at the beginning
 	lock, err := LoadLockFile(cursorDir)
@@ -644,7 +675,7 @@ func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g gl
 		absolutePattern = filepath.Join(cwd, pattern)
 	}
 
-	fmt.Printf("Debug: Using absolute glob pattern: %s\n", absolutePattern)
+	Debugf("Using absolute glob pattern: %s\n", absolutePattern)
 
 	// Use filepath.Glob to expand the pattern
 	matchedFiles, err := filepath.Glob(absolutePattern)
@@ -652,7 +683,7 @@ func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g gl
 		return fmt.Errorf("failed to expand glob pattern: %w", err)
 	}
 
-	fmt.Printf("Debug: Found %d matching files\n", len(matchedFiles))
+	Debugf("Found %d matching files\n", len(matchedFiles))
 
 	if len(matchedFiles) == 0 {
 		return fmt.Errorf("no files matched the pattern: %s", pattern)
@@ -660,6 +691,7 @@ func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g gl
 
 	// Track success/failure
 	successCount := 0
+	skippedCount := 0
 	errorCount := 0
 
 	// Collection of new rules
@@ -698,7 +730,25 @@ func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g gl
 
 		// Check if rule is already installed
 		if lock.IsInstalled(rule.Key) {
-			fmt.Printf("Rule already installed: %s\n", rule.Key)
+			// Find the existing rule
+			var existingRule RuleSource
+			for _, r := range lock.Rules {
+				if r.Key == rule.Key {
+					existingRule = r
+					break
+				}
+			}
+
+			// If content hash is available, compare that
+			if rule.ContentSHA256 != "" && existingRule.ContentSHA256 != "" &&
+				rule.ContentSHA256 != existingRule.ContentSHA256 {
+				fmt.Printf("Rule '%s' is already installed but has different content.\n", rule.Key)
+				fmt.Printf("To update, use: cursor-rules upgrade %s\n", rule.Key)
+			} else {
+				fmt.Printf("Rule '%s' is already installed and up-to-date.\n", rule.Key)
+			}
+
+			skippedCount++
 			continue
 		}
 
@@ -737,11 +787,12 @@ func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g gl
 	}
 
 	// Report results
-	if successCount == 0 {
+	if successCount == 0 && skippedCount == 0 {
 		return fmt.Errorf("no valid rules found for pattern: %s", pattern)
 	}
 
-	fmt.Printf("Added %d rules matching pattern %s (errors: %d)\n", successCount, pattern, errorCount)
+	fmt.Printf("Added %d rules matching pattern %s (skipped: %d, errors: %d)\n",
+		successCount, pattern, skippedCount, errorCount)
 	return nil
 }
 

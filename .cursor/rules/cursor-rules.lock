@@ -1,0 +1,18 @@
+{
+  "installed": [
+    "fireharp/monorepo/monorepo"
+  ],
+  "rules": [
+    {
+      "key": "fireharp/monorepo/monorepo",
+      "sourceType": "github-shorthand",
+      "reference": "fireharp/monorepo/monorepo",
+      "gitRef": "branch=main",
+      "localFiles": [
+        "/Users/fireharp/Prog/Stuff/cursor-rules/go-claude/.cursor/rules/fireharp/monorepo/monorepo.mdc"
+      ],
+      "resolvedCommit": "0a0da7a863a6c4dcbcffa500ebf8fcd7f45c1f94",
+      "contentSHA256": "6e21c476162ce5077db4dbf4fdf4b5328f4d832eac9461597adc1e9d79184c8b"
+    }
+  ]
+}

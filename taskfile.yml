@@ -25,9 +25,21 @@ tasks:
       - mkdir -p {{.BUILD_DIR}}
       - go build -v -o {{.BUILD_DIR}}/{{.BINARY}} {{.MAIN_PKG}}
 
+  build-debug:
+    desc: Build the cursor-rules binary with debug output enabled
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -v -tags debug -o {{.BUILD_DIR}}/{{.BINARY}} {{.MAIN_PKG}}
+
   run:
     desc: Run the cursor-rules application
     deps: [build]
+    cmds:
+      - ./{{.BUILD_DIR}}/{{.BINARY}}
+
+  run-debug:
+    desc: Run the cursor-rules application with debug output enabled
+    deps: [build-debug]
     cmds:
       - ./{{.BUILD_DIR}}/{{.BINARY}}
 

@@ -1,0 +1,10 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+When adding or checking files, remember, it's monorepo.
+
+So we don't usually add new files to root.
+
+Each directory in the root is a SEPARATE project with it's own stuff.

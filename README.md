@@ -12,8 +12,7 @@ brew install fireharp/tap/cursor-rules
 cursor-rules init
 
 # Auto-detect project type and setup appropriate rules
-# todo: deprecate it
-# todo: we also don't need templates folder 
+# DEPRECATED: The templates system will be removed in a future version
 cursor-rules setup
 
 # Share your rules with others
@@ -30,9 +29,7 @@ cursor-rules restore https://example.com/shared-rules.json --auto-resolve rename
 
 This tool makes it easy to set up and manage `.cursor/rules` configuration for Cursor editor. It provides:
 
-- Pre-defined templates for various languages (Python, Go, etc.)
-- Pre-defined templates for frameworks (React, etc.)
-- Ability to create custom rule templates
+- File-based rules management
 - Interactive CLI interface
 - Sharing and restoring rules between projects or users
 
@@ -42,9 +39,11 @@ This tool makes it easy to set up and manage `.cursor/rules` configuration for C
 
 ```bash
 # Initialize Cursor Rules with just the init template
+# DEPRECATED: The templates system will be removed in a future version
 cursor-rules init
 
 # Auto-detect project type, then add rules
+# DEPRECATED: The templates system will be removed in a future version
 cursor-rules setup
 
 # Add a rule from a local file path
@@ -181,28 +180,25 @@ Cursor Rules are stored in the `.cursor/rules` directory in your project root. E
 
 ## Template Examples
 
-### Language templates
+**DEPRECATED**: The templates system is deprecated and will be removed in a future version. Instead, use direct file references:
 
-Templates tailored for specific programming languages, including:
+```bash
+# Add a rule from a local file
+cursor-rules add ./my-rule.mdc
 
-- Python
-- Go
-- (more coming soon)
+# Add a rule from a GitHub repository
+cursor-rules add https://github.com/username/repo/blob/main/rules/my-rule.mdc
+```
 
-### Framework templates
+### File-based Rules
 
-Templates tailored for specific frameworks, including:
+With Cursor Rules, you can now directly reference files:
 
-- React
-- (more coming soon)
+- Local file paths (absolute or relative)
+- GitHub repository references
+- URLs to rule files
 
-### General template
-
-A general template with common coding rules that apply to most projects.
-
-### Custom templates
-
-You can create your own templates with custom rules that fit your specific needs.
+This approach is more flexible than the template system and allows for better customization and sharing of rules.
 
 ## Installation
 
@@ -263,14 +259,22 @@ go build -o cursor-rules ./cmd/cursor-rules
 3. Run tests with `task test`
 4. Build and test locally with `task run`
 
-### Adding new templates
+### Adding custom rules
 
-To add more templates:
+To add custom rules:
 
-1. Fork the repository
-2. Add your templates to the `pkg/templates/templates.go` file
-3. Make sure tests pass with `task test`
-4. Submit a pull request
+1. Create a Markdown document (`.mdc`) file with your rule content
+2. Add it using the `add` command:
+
+```bash
+cursor-rules add path/to/your-rule.mdc
+```
+
+You can also reference rules directly from GitHub repositories:
+
+```bash
+cursor-rules add https://github.com/username/repo/blob/main/rules/my-rule.mdc
+```
 
 ## License
 

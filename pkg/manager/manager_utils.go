@@ -365,7 +365,7 @@ func parseGlobPattern(ref string) (string, string, bool) {
 
 		// Verify the username is valid (doesn't contain glob characters)
 		if !isGlobPattern(username) {
-			fmt.Printf("Debug: Detected username glob pattern - username=%s, pattern=%s\n", username, pattern)
+			Debugf("Detected username glob pattern - username=%s, pattern=%s\n", username, pattern)
 			return username, pattern, true
 		}
 	}
@@ -398,7 +398,7 @@ func matchGlob(g glob.Glob, path string) bool {
 
 // generateRuleKey creates a rule key from a reference.
 func generateRuleKey(ref string) string {
-	fmt.Printf("Debug: generateRuleKey: input ref='%s'\n", ref)
+	Debugf("generateRuleKey: input ref='%s'\n", ref)
 
 	// 1) If this is a GitHub blob/tree URL, parse out owner/repo/path
 	if isGitHubBlobURL(ref) {
@@ -417,12 +417,12 @@ func generateRuleKey(ref string) string {
 				// e.g. "username/path/to/rule"
 				pathKey := strings.TrimSuffix(path, filepath.Ext(path))
 				key := owner + "/" + pathKey
-				fmt.Printf("Debug: generateRuleKey: GitHub cursor-rules-collection key='%s'\n", key)
+				Debugf("generateRuleKey: GitHub cursor-rules-collection key='%s'\n", key)
 				return key
 			} else {
 				// e.g. "owner/repo/rule"
 				key := owner + "/" + repo + "/" + baseName
-				fmt.Printf("Debug: generateRuleKey: GitHub other repo key='%s'\n", key)
+				Debugf("generateRuleKey: GitHub other repo key='%s'\n", key)
 				return key
 			}
 		}
@@ -434,14 +434,14 @@ func generateRuleKey(ref string) string {
 		username, rule, sha, _ := parseUsernameRuleWithSha(ref)
 		// Incorporate the SHA into the key
 		key := fmt.Sprintf("%s/%s-%s", username, rule, sha)
-		fmt.Printf("Debug: generateRuleKey: username/rule:sha key='%s'\n", key)
+		Debugf("generateRuleKey: username/rule:sha key='%s'\n", key)
 		return key
 	}
 	if isUsernameRuleWithTag(ref) {
 		username, rule, tag, _ := parseUsernameRuleWithTag(ref)
 		// Incorporate the tag into the key
 		key := fmt.Sprintf("%s/%s-%s", username, rule, tag)
-		fmt.Printf("Debug: generateRuleKey: username/rule@tag key='%s'\n", key)
+		Debugf("generateRuleKey: username/rule@tag key='%s'\n", key)
 		return key
 	}
 
@@ -450,7 +450,7 @@ func generateRuleKey(ref string) string {
 	if isUsernameRule(ref) {
 		username, rule, _ := parseUsernameRule(ref)
 		key := fmt.Sprintf("%s/%s", username, rule)
-		fmt.Printf("Debug: generateRuleKey: username/rule key='%s'\n", key)
+		Debugf("generateRuleKey: username/rule key='%s'\n", key)
 		return key
 	}
 
@@ -501,7 +501,7 @@ func generateRuleKey(ref string) string {
 			key = key + "-" + shaOrTag
 		}
 
-		fmt.Printf("Debug: generateRuleKey: username/path/rule key='%s'\n", key)
+		Debugf("generateRuleKey: username/path/rule key='%s'\n", key)
 		return key
 	}
 
@@ -517,7 +517,7 @@ func generateRuleKey(ref string) string {
 		pathHash := hex.EncodeToString(hasher.Sum(nil))[:8]
 
 		key := "local/abs/" + pathHash + "/" + baseWithoutExt
-		fmt.Printf("Debug: generateRuleKey: absolute path key='%s'\n", key)
+		Debugf("generateRuleKey: absolute path key='%s'\n", key)
 		return key
 	}
 
@@ -560,12 +560,12 @@ func generateRuleKey(ref string) string {
 		normalized = strings.TrimPrefix(normalized, "..-")
 
 		key := "local/rel/" + normalized
-		fmt.Printf("Debug: generateRuleKey: relative path key='%s'\n", key)
+		Debugf("generateRuleKey: relative path key='%s'\n", key)
 		return key
 	}
 
 	// 7) If we reach here, treat as built-in or fallback
-	fmt.Printf("Debug: generateRuleKey: defaulting to built-in/ prefix\n")
+	Debugf("generateRuleKey: defaulting to built-in/ prefix\n")
 	return "built-in/" + ref
 }
 

@@ -23,16 +23,16 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 	gitRef := matches[3]
 	path := matches[4]
 
-	fmt.Printf("Debug: handleGitHubBlob: parsed URL - owner='%s', repo='%s', gitRef='%s', path='%s'\n",
+	Debugf("handleGitHubBlob: parsed URL - owner='%s', repo='%s', gitRef='%s', path='%s'",
 		owner, repo, gitRef, path)
 
 	// Generate the rule key (owner-repo-filename)
 	key := generateRuleKey(ref)
-	fmt.Printf("Debug: handleGitHubBlob: generated key='%s'\n", key)
+	Debugf("handleGitHubBlob: generated key='%s'", key)
 
 	// Create the raw URL for downloading the file
 	rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, gitRef, path)
-	fmt.Printf("Debug: handleGitHubBlob: using raw URL='%s'\n", rawURL)
+	Debugf("handleGitHubBlob: using raw URL='%s'", rawURL)
 
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -43,12 +43,12 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 	// Download the file
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Printf("Debug: handleGitHubBlob: HTTP request failed: %v\n", err)
+		Debugf("handleGitHubBlob: HTTP request failed: %v", err)
 		return RuleSource{}, fmt.Errorf("failed to download GitHub file: %w", err)
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("Debug: handleGitHubBlob: HTTP status code: %d %s\n", resp.StatusCode, resp.Status)
+	Debugf("handleGitHubBlob: HTTP status code: %d %s", resp.StatusCode, resp.Status)
 
 	if resp.StatusCode != http.StatusOK {
 		return RuleSource{}, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, resp.Status)
@@ -60,11 +60,11 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 		return RuleSource{}, fmt.Errorf("failed to read GitHub file content: %w", err)
 	}
 
-	fmt.Printf("Debug: handleGitHubBlob: successfully read %d bytes\n", len(content))
+	Debugf("handleGitHubBlob: successfully read %d bytes", len(content))
 
 	// Write to .cursor/rules/key.mdc
 	targetPath := filepath.Join(cursorDir, key+".mdc")
-	fmt.Printf("Debug: handleGitHubBlob: writing to '%s'\n", targetPath)
+	Debugf("handleGitHubBlob: writing to '%s'", targetPath)
 
 	// Ensure parent directories exist for hierarchical keys
 	if err := ensureRuleDirectory(cursorDir, key); err != nil {
@@ -108,7 +108,7 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 	// Calculate and store the content hash for future upgrade checks
 	result.ContentSHA256 = calculateSHA256(content)
 
-	fmt.Printf("Debug: handleGitHubBlob: completed successfully with key='%s'\n", key)
+	Debugf("handleGitHubBlob: completed successfully with key='%s'", key)
 	return result, nil
 }
 
@@ -167,6 +167,6 @@ func handleLocalFile(cursorDir, ref string, isAbs bool) (RuleSource, error) {
 	// Keep the original reference
 	rule.Reference = ref
 
-	fmt.Printf("Debug: handleLocalFile completed with rule key: '%s'\n", rule.Key)
+	Debugf("handleLocalFile completed with rule key: '%s'", rule.Key)
 	return rule, nil
 }
