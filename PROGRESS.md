@@ -225,3 +225,13 @@ MEMO: The refactoring will focus on implementing a Strategy pattern for differen
 ## WHAT WAS DONE: Refactored manager_rules.go to use the Strategy Pattern, split code into multiple files, removed goto statements, extracted lockfile update logic to a separate function, and added improved documentation
 
 MEMO: The refactoring improves maintainability and testability by using a Registry of handlers for different reference types. New reference types can now be added by creating a new handler without modifying the core addRuleByReferenceImpl function.
+
+## 2025-03-30 22:18:09 CEST
+
+---
+
+## PROBLEM: After the successful Strategy Pattern refactoring of manager_rules.go, several areas still need improvement
+
+WHAT WAS DONE: Created a follow-up task with prioritized steps to further enhance the refactored codebase
+
+MEMO: The follow-up improvements focus on: (1) Updating tests to match the new architecture, (2) Replacing string-based error detection with custom error types, (3) Improving code organization and consistency, and (4) Adding more specific unit tests for handlers
