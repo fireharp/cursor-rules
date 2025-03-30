@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/fireharp/cursor-rules/pkg/templates"
+	"github.com/gobwas/glob"
 )
 
 // Function type definitions for dependency injection and testing
@@ -81,15 +82,60 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 	var err error
 
 	// Handle different reference types
-	if isGitHubBlobURL(ref) {
+	if isGlobPattern(ref) {
+		// Handle glob pattern
+		return handleGlobPattern(context.Background(), cursorDir, ref)
+	} else if isGitHubBlobURL(ref) {
 		rule, err = handleGitHubBlob(context.Background(), cursorDir, ref)
 	} else if isGitHubTreeURL(ref) {
 		rule, err = handleGitHubDir(cursorDir, ref)
+	} else if isUsernameRuleWithSha(ref) {
+		// Handle username/rule:sha format
+		rule, err = handleUsernameRuleWithSha(context.Background(), cursorDir, ref)
+	} else if isUsernameRuleWithTag(ref) {
+		// Handle username/rule@tag format
+		rule, err = handleUsernameRuleWithTag(context.Background(), cursorDir, ref)
+	} else if isUsernameRule(ref) {
+		// Handle username/rule format
+		rule, err = handleUsernameRule(context.Background(), cursorDir, ref)
+	} else if isUsernamePathRule(ref) {
+		// Handle username/path/rule format
+		rule, err = handleUsernamePathRule(context.Background(), cursorDir, ref)
 	} else if isAbsolutePath(ref) {
 		rule, err = handleLocalFile(cursorDir, ref, true)
 	} else if isRelativePath(ref) {
 		rule, err = handleLocalFile(cursorDir, ref, false)
 	} else {
+		// Check if there's a default username and this is a simple rule name
+		defaultUsername := getDefaultUsername()
+		if defaultUsername != "" {
+			// Use the default username for resolution
+			defaultRef := defaultUsername + "/" + ref
+			// Directly construct GitHub URL to avoid recursive call
+			githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s.mdc",
+				defaultUsername, ref)
+			rule, err = handleGitHubBlob(context.Background(), cursorDir, githubURL)
+
+			if err == nil {
+				// Found in the cursor-rules-collection repo
+				rule.SourceType = SourceTypeGitHubShorthand
+				rule.Reference = defaultRef // Store the resolved reference
+				goto updateLockfile
+			}
+
+			// If not found, try with potential paths (could be nested)
+			githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s/%s.mdc",
+				defaultUsername, ref, ref)
+			rule, err = handleGitHubBlob(context.Background(), cursorDir, githubURL)
+
+			if err == nil {
+				// Found in the cursor-rules-collection repo in a subdirectory
+				rule.SourceType = SourceTypeGitHubShorthand
+				rule.Reference = defaultRef // Store the resolved reference
+				goto updateLockfile
+			}
+		}
+
 		// Use the built-in template approach (search in templates)
 		tmpl, err := templates.FindTemplateByName(ref)
 		if err == nil && tmpl.Category != "" {
@@ -102,6 +148,7 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 		return fmt.Errorf("failed to process reference: %w", err)
 	}
 
+updateLockfile:
 	// Update lockfile with the new rule
 	lock, err := LoadLockFile(cursorDir)
 	if err != nil {
@@ -122,6 +169,174 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 	}
 
 	return nil
+}
+
+// handleUsernameRule handles a reference in the username/rule format.
+// This will look for the rule in the username/cursor-rules-collection repo.
+func handleUsernameRule(ctx context.Context, cursorDir, ref string) (RuleSource, error) {
+	username, ruleName, ok := parseUsernameRule(ref)
+	if !ok {
+		return RuleSource{}, fmt.Errorf("invalid username/rule format: %s", ref)
+	}
+
+	// First, try to find it in username/cursor-rules-collection repo
+	githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s.mdc", username, ruleName)
+	rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
+
+	if err == nil {
+		// Found in the cursor-rules-collection repo
+		rule.SourceType = SourceTypeGitHubShorthand
+		rule.Reference = ref // Store the original reference
+		return rule, nil
+	}
+
+	// If not found, try with potential paths (could be nested)
+	githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s/%s.mdc", username, ruleName, ruleName)
+	rule, err = handleGitHubBlob(ctx, cursorDir, githubURL)
+
+	if err == nil {
+		// Found in the cursor-rules-collection repo in a subdirectory
+		rule.SourceType = SourceTypeGitHubShorthand
+		rule.Reference = ref // Store the original reference
+		return rule, nil
+	}
+
+	return RuleSource{}, fmt.Errorf("rule not found in username/cursor-rules-collection: %s", ref)
+}
+
+// handleUsernamePathRule handles a reference in the username/path/rule format.
+// This will first try in username/cursor-rules-collection, then fallback to username/repo.
+func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSource, error) {
+	username, pathParts, ok := parseUsernamePathRule(ref)
+	if !ok || len(pathParts) < 1 {
+		return RuleSource{}, fmt.Errorf("invalid username/path/rule format: %s", ref)
+	}
+
+	// First, try to interpret it as username/path/to/rule in cursor-rules-collection
+	if len(pathParts) >= 1 {
+		// Extract the last part as the rule name and construct the path
+		ruleName := pathParts[len(pathParts)-1]
+		pathToRule := strings.Join(pathParts[:len(pathParts)-1], "/")
+
+		// If the rule already has .mdc extension, don't add it again
+		ruleFile := ruleName
+		if !strings.HasSuffix(ruleName, ".mdc") {
+			ruleFile = ruleName + ".mdc"
+		}
+
+		var githubURL string
+		if pathToRule == "" {
+			githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s",
+				username, ruleFile)
+		} else {
+			githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s/%s",
+				username, pathToRule, ruleFile)
+		}
+
+		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
+		if err == nil {
+			// Found in the cursor-rules-collection repo
+			rule.SourceType = SourceTypeGitHubShorthand
+			rule.Reference = ref // Store the original reference
+			return rule, nil
+		}
+	}
+
+	// If not found, try to interpret as username/repo/path/to/rule.mdc
+	if len(pathParts) >= 2 {
+		repo := pathParts[0]
+		remainingPath := strings.Join(pathParts[1:], "/")
+
+		// If the last part already has .mdc extension, don't add it again
+		if !strings.HasSuffix(remainingPath, ".mdc") {
+			remainingPath += ".mdc"
+		}
+
+		githubURL := fmt.Sprintf("https://github.com/%s/%s/blob/main/%s",
+			username, repo, remainingPath)
+
+		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
+		if err == nil {
+			// Found in the specified repo
+			rule.SourceType = SourceTypeGitHubRepoPath
+			rule.Reference = ref // Store the original reference
+			return rule, nil
+		}
+	}
+
+	return RuleSource{}, fmt.Errorf("rule not found in any matching repository: %s", ref)
+}
+
+// handleUsernameRuleWithSha handles a reference in the username/rule:sha format.
+func handleUsernameRuleWithSha(ctx context.Context, cursorDir, ref string) (RuleSource, error) {
+	username, ruleName, sha, ok := parseUsernameRuleWithSha(ref)
+	if !ok {
+		return RuleSource{}, fmt.Errorf("invalid username/rule:sha format: %s", ref)
+	}
+
+	// Build GitHub URL with specific commit
+	githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/%s/%s.mdc",
+		username, sha, ruleName)
+
+	rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
+	if err == nil {
+		// Found in the cursor-rules-collection repo at specific commit
+		rule.SourceType = SourceTypeGitHubShorthand
+		rule.Reference = ref // Store the original reference
+		rule.GitRef = "commit=" + sha
+		return rule, nil
+	}
+
+	// Try in a subdirectory as well
+	githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/%s/%s/%s.mdc",
+		username, sha, ruleName, ruleName)
+
+	rule, err = handleGitHubBlob(ctx, cursorDir, githubURL)
+	if err == nil {
+		// Found in the cursor-rules-collection repo in a subdirectory at specific commit
+		rule.SourceType = SourceTypeGitHubShorthand
+		rule.Reference = ref // Store the original reference
+		rule.GitRef = "commit=" + sha
+		return rule, nil
+	}
+
+	return RuleSource{}, fmt.Errorf("rule not found in username/cursor-rules-collection at commit %s: %s", sha, ref)
+}
+
+// handleUsernameRuleWithTag handles a reference in the username/rule@tag format.
+func handleUsernameRuleWithTag(ctx context.Context, cursorDir, ref string) (RuleSource, error) {
+	username, ruleName, tag, ok := parseUsernameRuleWithTag(ref)
+	if !ok {
+		return RuleSource{}, fmt.Errorf("invalid username/rule@tag format: %s", ref)
+	}
+
+	// Build GitHub URL with specific tag
+	githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/%s/%s.mdc",
+		username, tag, ruleName)
+
+	rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
+	if err == nil {
+		// Found in the cursor-rules-collection repo at specific tag
+		rule.SourceType = SourceTypeGitHubShorthand
+		rule.Reference = ref // Store the original reference
+		rule.GitRef = "tag=" + tag
+		return rule, nil
+	}
+
+	// Try in a subdirectory as well
+	githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/%s/%s/%s.mdc",
+		username, tag, ruleName, ruleName)
+
+	rule, err = handleGitHubBlob(ctx, cursorDir, githubURL)
+	if err == nil {
+		// Found in the cursor-rules-collection repo in a subdirectory at specific tag
+		rule.SourceType = SourceTypeGitHubShorthand
+		rule.Reference = ref // Store the original reference
+		rule.GitRef = "tag=" + tag
+		return rule, nil
+	}
+
+	return RuleSource{}, fmt.Errorf("rule not found in username/cursor-rules-collection at tag %s: %s", tag, ref)
 }
 
 // RemoveRule uninstalls a rule and removes its files.
@@ -314,5 +529,123 @@ func SyncLocalRules(cursorDir string) error {
 		}
 	}
 
+	return nil
+}
+
+// handleGlobPattern handles references with glob patterns.
+// This processes multiple rules that match the pattern.
+func handleGlobPattern(ctx context.Context, cursorDir, ref string) error {
+	// Parse the glob pattern
+	username, pattern, ok := parseGlobPattern(ref)
+	if !ok {
+		return fmt.Errorf("invalid glob pattern: %s", ref)
+	}
+
+	// Compile the glob pattern
+	g, err := compileGlob(pattern)
+	if err != nil {
+		return fmt.Errorf("invalid glob pattern: %w", err)
+	}
+
+	// Check if we have a username
+	if username != "" {
+		// Try to find matching rules in username/cursor-rules-collection
+		return handleUsernameGlobPattern(ctx, cursorDir, username, pattern, g)
+	} else {
+		// Try to find matching templates
+		return handleTemplateGlobPattern(cursorDir, pattern, g)
+	}
+}
+
+// handleUsernameGlobPattern handles glob patterns with a username.
+// This looks for matching rules in the username's cursor-rules-collection repo.
+func handleUsernameGlobPattern(ctx context.Context, cursorDir, username, pattern string, g glob.Glob) error {
+	// Try to get a list of files from the repo
+	owner := username
+	repo := "cursor-rules-collection"
+	branch := "main" // Default to main branch
+
+	// Get list of files from GitHub
+	files, err := listGitHubRepoFiles(ctx, owner, repo, branch, pattern)
+	if err != nil {
+		// If we can't list, tell the user and suggest alternatives
+		fmt.Printf("Could not list files matching pattern: %v\n", err)
+		fmt.Println("You may need to add rules individually instead of using glob patterns.")
+		return fmt.Errorf("failed to list files matching pattern: %w", err)
+	}
+
+	// Track success/failure
+	successCount := 0
+	errorCount := 0
+
+	// Process each matching file
+	for _, file := range files {
+		// Check if it matches our pattern
+		if !matchGlob(g, file) {
+			continue
+		}
+
+		// Only process .mdc files
+		if !strings.HasSuffix(file, ".mdc") {
+			continue
+		}
+
+		// Construct a new reference without the glob
+		fileRef := fmt.Sprintf("%s/%s", username, file)
+
+		// Try to add this rule
+		err := AddRuleByReference(cursorDir, fileRef)
+		if err != nil {
+			fmt.Printf("Warning: Could not add rule %s: %v\n", fileRef, err)
+			errorCount++
+		} else {
+			successCount++
+		}
+	}
+
+	// Report results
+	if successCount == 0 {
+		return fmt.Errorf("no matching rules found for pattern: %s", pattern)
+	}
+
+	fmt.Printf("Added %d rules matching pattern %s (errors: %d)\n", successCount, pattern, errorCount)
+	return nil
+}
+
+// handleTemplateGlobPattern handles glob patterns for built-in templates.
+func handleTemplateGlobPattern(cursorDir, pattern string, g glob.Glob) error {
+	// Get list of available templates
+	allTemplates, err := templates.ListTemplates()
+	if err != nil {
+		return fmt.Errorf("failed to list templates: %w", err)
+	}
+
+	// Track success/failure
+	successCount := 0
+	errorCount := 0
+
+	// Process each matching template
+	for _, tmpl := range allTemplates {
+		// Check if the template name matches our pattern
+		if !matchGlob(g, tmpl.Name) {
+			continue
+		}
+
+		// Try to add this template
+		err := AddRule(cursorDir, tmpl.Category, tmpl.Name)
+		if err != nil {
+			fmt.Printf("Warning: Could not add template %s: %v\n", tmpl.Name, err)
+			errorCount++
+		} else {
+			successCount++
+		}
+	}
+
+	// Report results
+	if successCount == 0 {
+		return fmt.Errorf("no matching templates found for pattern: %s", pattern)
+	}
+
+	fmt.Printf("Added %d templates matching pattern %s (errors: %d)\n", successCount, pattern, errorCount)
 	return nil
 }

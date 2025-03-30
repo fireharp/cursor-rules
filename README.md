@@ -12,6 +12,8 @@ brew install fireharp/tap/cursor-rules
 cursor-rules init
 
 # Auto-detect project type and setup appropriate rules
+# todo: deprecate it
+# todo: we also don't need templates folder 
 cursor-rules setup
 
 # Share your rules with others
