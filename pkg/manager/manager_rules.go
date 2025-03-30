@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,6 +44,12 @@ func addRuleImpl(cursorDir, category, ruleKey string) error {
 
 	// Write to .cursor/rules/{ruleKey}.mdc
 	targetPath := filepath.Join(cursorDir, ruleKey+".mdc")
+
+	// Ensure parent directories exist for hierarchical keys
+	if err := ensureRuleDirectory(cursorDir, ruleKey); err != nil {
+		return fmt.Errorf("failed preparing directory for rule '%s': %w", ruleKey, err)
+	}
+
 	err = os.WriteFile(targetPath, []byte(content), 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to write rule file: %w", err)
@@ -75,53 +82,49 @@ func AddRuleByReference(cursorDir, ref string) error {
 }
 
 // addRuleByReferenceImpl is the implementation of AddRuleByReference.
+// This function has been refactored to use the Strategy Pattern instead of a large
+// if/else chain. It now uses a registry of handlers to find the appropriate handler
+// for the given reference type, and delegates the processing to that handler.
+// The original goto statement has been replaced with proper function extraction.
 func addRuleByReferenceImpl(cursorDir, ref string) error {
-	// Skip if already installed - we need to detect the key first
-	var rule RuleSource
-	var err error
+	// Create a registry with all reference handlers
+	registry := NewReferenceHandlerRegistry()
 
-	// Handle different reference types
-	if isGitHubBlobURL(ref) {
-		rule, err = handleGitHubBlob(context.Background(), cursorDir, ref)
-	} else if isGitHubTreeURL(ref) {
-		rule, err = handleGitHubDir(cursorDir, ref)
-	} else if isAbsolutePath(ref) {
-		rule, err = handleLocalFile(cursorDir, ref, true)
-	} else if isRelativePath(ref) {
-		rule, err = handleLocalFile(cursorDir, ref, false)
-	} else {
-		// Use the built-in template approach (search in templates)
+	// Find a handler for this reference
+	handler := registry.FindHandler(ref)
+	if handler == nil {
+		// Check if it's a built-in template as a last resort
 		tmpl, err := templates.FindTemplateByName(ref)
 		if err == nil && tmpl.Category != "" {
 			return AddRule(cursorDir, tmpl.Category, ref)
 		}
+
 		return fmt.Errorf("unsupported reference format or rule not found: %s", ref)
 	}
 
+	// Process the reference
+	rule, err := handler.Process(context.Background(), cursorDir, ref)
+
+	// Handle specific error cases
 	if err != nil {
+		// Check if this is a special error indicating a template was found
+		var templateFoundErr *ErrTemplateFound
+		if errors.As(err, &templateFoundErr) {
+			return AddRule(cursorDir, templateFoundErr.Category, templateFoundErr.Name)
+		}
+
+		// Pass through other errors
 		return fmt.Errorf("failed to process reference: %w", err)
 	}
 
-	// Update lockfile with the new rule
-	lock, err := LoadLockFile(cursorDir)
-	if err != nil {
-		return fmt.Errorf("failed to load lockfile: %w", err)
+	// For glob patterns, the handler updates the lockfile directly and returns an empty RuleSource
+	if handler.CanHandle(ref) && isGlobPattern(ref) {
+		// Glob patterns are handled specially and already update the lockfile
+		return nil
 	}
 
-	if lock.IsInstalled(rule.Key) {
-		return fmt.Errorf("rule already installed: %s", rule.Key)
-	}
-
-	lock.Rules = append(lock.Rules, rule)
-	// For backwards compatibility
-	lock.Installed = append(lock.Installed, rule.Key)
-
-	err = lock.Save(cursorDir)
-	if err != nil {
-		return fmt.Errorf("failed to update lockfile: %w", err)
-	}
-
-	return nil
+	// Update the lockfile with the processed rule
+	return updateLockfileWithRule(cursorDir, rule)
 }
 
 // RemoveRule uninstalls a rule and removes its files.
@@ -162,7 +165,7 @@ func RemoveRule(cursorDir string, ruleKey string) error {
 	}
 
 	if ruleIndex == -1 {
-		return fmt.Errorf("rule not found: %s", ruleKey)
+		return &ErrRuleNotFound{RuleKey: ruleKey}
 	}
 
 	// Remove the rule files
@@ -177,7 +180,10 @@ func RemoveRule(cursorDir string, ruleKey string) error {
 		if fileExists(filePath) {
 			err = os.Remove(filePath)
 			if err != nil {
-				return fmt.Errorf("failed to remove rule file %s: %w", filePath, err)
+				return &ErrLocalFileAccess{
+					Path:  filePath,
+					Cause: err,
+				}
 			}
 		}
 	}

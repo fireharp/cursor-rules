@@ -20,13 +20,6 @@ var (
 	date    = "unknown"
 )
 
-// AppFlags contains the parsed top-level command flags.
-type AppFlags struct {
-	versionFlag bool
-	initFlag    bool
-	setupFlag   bool
-}
-
 // AppFlagSets contains all the flag sets for subcommands.
 type AppFlagSets struct {
 	addCmd                 *flag.FlagSet
@@ -46,12 +39,26 @@ type AppFlagSets struct {
 }
 
 func main() {
-	// Define flags and flag sets
-	flags, flagSets := defineFlags()
+	// Define flags
+	versionFlag := flag.Bool("version", false, "Print version information")
+	initFlag := flag.Bool("init", false, "Initialize Cursor Rules with just the init template")
+	setupFlag := flag.Bool("setup", false, "Run project type detection and setup appropriate rules")
+	debugFlag := flag.Bool("debug", false, "Enable debug output")
 
-	// Parse flags and get arguments
+	// Parse flags
 	flag.Parse()
+
+	// Create flag sets for subcommands after parsing the main flags
+	flagSets := defineFlagSets()
+
+	// Get arguments
 	args := flag.Args()
+
+	// Set debug mode if flag is set
+	if *debugFlag {
+		manager.Debug = true
+		fmt.Println("Debug mode enabled")
+	}
 
 	// Get command if present
 	command := ""
@@ -60,7 +67,7 @@ func main() {
 	}
 
 	// Handle version flag early - guard clause
-	if flags.versionFlag {
+	if *versionFlag {
 		printVersion()
 		return
 	}
@@ -88,12 +95,12 @@ func main() {
 	}
 
 	// Handle flag-style commands
-	if flags.initFlag || command == "init" {
+	if *initFlag || command == "init" {
 		runInitCommand(cursorDir)
 		return
 	}
 
-	if flags.setupFlag || command == "setup" {
+	if *setupFlag || command == "setup" {
 		setupProject(cwd, cursorDir)
 		return
 	}
@@ -102,13 +109,8 @@ func main() {
 	showHelp()
 }
 
-// defineFlags sets up all command-line flags and returns the parsed flags.
-func defineFlags() (AppFlags, AppFlagSets) {
-	// Define top-level flags
-	versionFlag := flag.Bool("version", false, "Print version information")
-	initFlag := flag.Bool("init", false, "Initialize Cursor Rules with just the init template")
-	setupFlag := flag.Bool("setup", false, "Run project type detection and setup appropriate rules")
-
+// defineFlagSets sets up flag sets for subcommands.
+func defineFlagSets() AppFlagSets {
 	// Define flag sets for subcommands
 	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
 	addRefCmd := flag.NewFlagSet("add-ref", flag.ExitOnError)
@@ -133,26 +135,22 @@ func defineFlags() (AppFlags, AppFlagSets) {
 	restoreAutoResolveFlag := restoreCmd.String("auto-resolve", "",
 		"Automatically resolve conflicts (options: skip, overwrite, rename)")
 
-	return AppFlags{
-			versionFlag: *versionFlag,
-			initFlag:    *initFlag,
-			setupFlag:   *setupFlag,
-		}, AppFlagSets{
-			addCmd:                 addCmd,
-			addRefCmd:              addRefCmd,
-			removeCmd:              removeCmd,
-			upgradeCmd:             upgradeCmd,
-			updateCmd:              updateCmd,
-			listCmd:                listCmd,
-			listDetailedFlag:       listDetailedFlag,
-			lockLocationCmd:        lockLocationCmd,
-			useRootFlag:            useRootFlag,
-			shareCmd:               shareCmd,
-			shareOutputFlag:        shareOutputFlag,
-			shareEmbedFlag:         shareEmbedFlag,
-			restoreCmd:             restoreCmd,
-			restoreAutoResolveFlag: restoreAutoResolveFlag,
-		}
+	return AppFlagSets{
+		addCmd:                 addCmd,
+		addRefCmd:              addRefCmd,
+		removeCmd:              removeCmd,
+		upgradeCmd:             upgradeCmd,
+		updateCmd:              updateCmd,
+		listCmd:                listCmd,
+		listDetailedFlag:       listDetailedFlag,
+		lockLocationCmd:        lockLocationCmd,
+		useRootFlag:            useRootFlag,
+		shareCmd:               shareCmd,
+		shareOutputFlag:        shareOutputFlag,
+		shareEmbedFlag:         shareEmbedFlag,
+		restoreCmd:             restoreCmd,
+		restoreAutoResolveFlag: restoreAutoResolveFlag,
+	}
 }
 
 // initializeEnvironment sets up the environment (directories, templates).
@@ -172,11 +170,28 @@ func initializeEnvironment() (cwd, cursorDir, projectDir string, err error) {
 	execDir := filepath.Dir(execPath)
 	projectDir = findProjectRoot(execDir)
 
-	// Load templates
-	err = templates.LoadTemplates(projectDir)
-	if err != nil {
-		return "", "", "", fmt.Errorf("error loading templates: %w", err)
+	// DEPRECATED: Templates are deprecated and will be removed in a future version
+	// Initialize empty categories to avoid nil pointer errors
+	templates.Categories["languages"] = &templates.TemplateCategory{
+		Name:        "Languages",
+		Description: "Templates for programming languages",
+		Templates:   make(map[string]templates.Template),
 	}
+
+	templates.Categories["frameworks"] = &templates.TemplateCategory{
+		Name:        "Frameworks",
+		Description: "Templates for frameworks and libraries",
+		Templates:   make(map[string]templates.Template),
+	}
+
+	templates.Categories["general"] = &templates.TemplateCategory{
+		Name:        "General",
+		Description: "General templates for all projects",
+		Templates:   make(map[string]templates.Template),
+	}
+
+	// Create basic templates needed for init and setup
+	createBasicTemplates()
 
 	// Create .cursor/rules directory if it doesn't exist
 	cursorDir = filepath.Join(cwd, ".cursor", "rules")
@@ -186,6 +201,54 @@ func initializeEnvironment() (cwd, cursorDir, projectDir string, err error) {
 
 	fmt.Printf("Initialized .cursor/rules directory in %s\n", cursorDir)
 	return cwd, cursorDir, projectDir, nil
+}
+
+// createBasicTemplates creates the minimum templates needed for init and setup
+func createBasicTemplates() {
+	// Create init template
+	templates.Categories["general"].Templates["init"] = templates.Template{
+		Name:        "Init",
+		Description: "Initialize Cursor Rules",
+		Filename:    "init.mdc",
+		Content:     "# Cursor Rules Initialization\n\nif you have `CR_SETUP` or `crsetup` or `CRSETUP` or user just expresses some intent to \"setup cursor rules for this project\" in general in request\n\nlaunch bash script immetiately\n\n```bash\ngo-claude/bin/cursor-rules setup\n```",
+		Category:    "general",
+	}
+
+	// Create setup template
+	templates.Categories["general"].Templates["setup"] = templates.Template{
+		Name:        "Setup",
+		Description: "Setup Cursor Rules based on project type",
+		Filename:    "setup.mdc",
+		Content:     "# CursorRules Setup\n\nThis template is used to detect project types and add appropriate rules based on the project structure.\n\n## Project Detection\n\nWhen this template is triggered by running `CursorRules.setup or CR_SETUP` or `CR_SETUP`, it will:\n\n1. Check for package.json (npm/Node.js projects)\n2. Check for setup.py, requirements.txt, pyproject.toml (Python projects)\n3. Check for other common project identifiers\n4. Add appropriate templates based on detected project types",
+		Category:    "general",
+	}
+
+	// Create general template
+	templates.Categories["general"].Templates["general"] = templates.Template{
+		Name:        "General",
+		Description: "General template for all projects",
+		Filename:    "general.mdc",
+		Content:     "# General Cursor Rules\n\nThese are general rules that apply to all projects.",
+		Category:    "general",
+	}
+
+	// Create basic React template
+	templates.Categories["frameworks"].Templates["react"] = templates.Template{
+		Name:        "React",
+		Description: "React template",
+		Filename:    "react.mdc",
+		Content:     "# React Cursor Rules\n\nThese are rules specific to React projects.",
+		Category:    "frameworks",
+	}
+
+	// Create basic Python template
+	templates.Categories["languages"].Templates["python"] = templates.Template{
+		Name:        "Python",
+		Description: "Python template",
+		Filename:    "python.mdc",
+		Content:     "# Python Cursor Rules\n\nThese are rules specific to Python projects.",
+		Category:    "languages",
+	}
 }
 
 // printVersion prints the version information.
@@ -231,7 +294,7 @@ func handleAddCommand(cursorDir string, args []string, cmd *flag.FlagSet) error 
 	}
 
 	if cmd.NArg() < 1 {
-		fmt.Println("Usage: cursor-rules add <reference>")
+		fmt.Println("Usage: cursor-rules add <reference> [<reference2> ...]")
 		fmt.Println("  where <reference> can be:")
 		fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
 		fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
@@ -239,12 +302,16 @@ func handleAddCommand(cursorDir string, args []string, cmd *flag.FlagSet) error 
 		return nil
 	}
 
-	reference := cmd.Arg(0)
-	if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
-		return fmt.Errorf("error adding rule from reference: %w", err)
+	// Process all references provided
+	for i := 0; i < cmd.NArg(); i++ {
+		reference := cmd.Arg(i)
+		err := manager.AddRuleByReference(cursorDir, reference)
+		if err != nil {
+			return fmt.Errorf("error adding rule from reference %q: %w", reference, err)
+		}
+		fmt.Printf("Rule from %q added successfully\n", reference)
 	}
 
-	fmt.Printf("Rule from %q added successfully\n", reference)
 	return nil
 }
 
@@ -255,7 +322,7 @@ func handleAddRefCommand(cursorDir string, args []string, cmd *flag.FlagSet) err
 	}
 
 	if cmd.NArg() < 1 {
-		fmt.Println("Usage: cursor-rules add-ref <reference>")
+		fmt.Println("Usage: cursor-rules add-ref <reference> [<reference2> ...]")
 		fmt.Println("  where <reference> can be:")
 		fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
 		fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
@@ -263,12 +330,15 @@ func handleAddRefCommand(cursorDir string, args []string, cmd *flag.FlagSet) err
 		return nil
 	}
 
-	reference := cmd.Arg(0)
-	if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
-		return fmt.Errorf("error adding rule from reference: %w", err)
+	// Process all references provided
+	for i := 0; i < cmd.NArg(); i++ {
+		reference := cmd.Arg(i)
+		if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
+			return fmt.Errorf("error adding rule from reference %q: %w", reference, err)
+		}
+		fmt.Printf("Rule from %q added successfully\n", reference)
 	}
 
-	fmt.Printf("Rule from %q added successfully\n", reference)
 	return nil
 }
 
@@ -477,8 +547,8 @@ func showHelp() {
 	fmt.Println("\nCommands:")
 	fmt.Println("  init                           Initialize Cursor Rules with just the init template")
 	fmt.Println("  setup                          Run project type detection and setup appropriate rules")
-	fmt.Println("  add <reference>                Add a rule from a reference (local file or GitHub URL)")
-	fmt.Println("  add-ref <reference>            (Alias for 'add') Add rule using a direct reference")
+	fmt.Println("  add <reference> [<ref2> ...]   Add rule(s) from reference(s) (local file or GitHub URL)")
+	fmt.Println("  add-ref <reference> [<ref2> ...] (Alias for 'add') Add rule(s) using direct reference(s)")
 	fmt.Println("  remove <ruleKey>               Remove an installed rule")
 	fmt.Println("  upgrade <ruleKey>              Upgrade a rule to the latest version")
 	fmt.Println("  update <ruleKey>               (Alias for 'upgrade') Update a rule to the latest version")
@@ -491,15 +561,20 @@ func showHelp() {
 	fmt.Println("  --version                      Show version information")
 	fmt.Println("  --init                         Initialize Cursor Rules with just the init template")
 	fmt.Println("  --setup                        Run project type detection and setup appropriate rules")
+	fmt.Println("  --debug                        Enable debug output (for troubleshooting)")
 	fmt.Println("\nExamples:")
 	fmt.Println("  cursor-rules add https://github.com/user/repo/blob/main/path/to/rule.mdc")
 	fmt.Println("  cursor-rules add ./local/path/to/rule.mdc")
+	fmt.Println("  cursor-rules add rule1.mdc rule2.mdc rule3.mdc")
+	fmt.Println("  cursor-rules --debug add fireharp/monorepo")
 	fmt.Println("  cursor-rules upgrade my-rule")
 	fmt.Println("  cursor-rules list --detailed")
 }
 
 // runInitCommand initializes cursor rules with just the init template.
 func runInitCommand(cursorDir string) {
+	fmt.Println("DEPRECATED: The templates system will be removed in a future version.")
+
 	// Get the init template from the general category
 	initTemplate, ok := templates.Categories["general"].Templates["init"]
 	if !ok {
@@ -535,6 +610,7 @@ func runInitCommand(cursorDir string) {
 
 // setupProject detects project type and sets up appropriate rules.
 func setupProject(projectDir, cursorDir string) {
+	fmt.Println("DEPRECATED: The templates system will be removed in a future version.")
 	fmt.Println("Detecting project type...")
 
 	// Get the setup template from the general category
@@ -687,35 +763,7 @@ func fileExists(filePath string) bool {
 
 // looking for the templates directory.
 func findProjectRoot(startDir string) string {
-	// First, check if we're running from the project directory
-	if _, err := os.Stat(filepath.Join(startDir, "templates")); err == nil {
-		return startDir
-	}
-
-	// Check one level up
-	parentDir := filepath.Dir(startDir)
-	if _, err := os.Stat(filepath.Join(parentDir, "templates")); err == nil {
-		return parentDir
-	}
-
-	// Check commonly used paths
-	candidatePaths := []string{
-		filepath.Join(startDir, ".."),
-		filepath.Join(startDir, "..", ".."),
-		filepath.Join(os.Getenv("GOPATH"), "src", "github.com", "fireharp", "cursor-rules"),
-	}
-
-	for _, path := range candidatePaths {
-		if _, err := os.Stat(filepath.Join(path, "templates")); err == nil {
-			return path
-		}
-	}
-
-	// Fallback to the current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return startDir
-	}
-
-	return cwd
+	// DEPRECATED: Templates directory is no longer required
+	// Just return the executable directory as project root
+	return startDir
 }

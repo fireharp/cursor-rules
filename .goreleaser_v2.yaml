@@ -25,6 +25,8 @@ builds:
     main: ./cmd/cursor-rules/main.go
     id: "cursor-rules"
     binary: cursor-rules
+    tags:
+      - release
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 

@@ -23,11 +23,16 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 	gitRef := matches[3]
 	path := matches[4]
 
+	Debugf("handleGitHubBlob: parsed URL - owner='%s', repo='%s', gitRef='%s', path='%s'",
+		owner, repo, gitRef, path)
+
 	// Generate the rule key (owner-repo-filename)
 	key := generateRuleKey(ref)
+	Debugf("handleGitHubBlob: generated key='%s'", key)
 
 	// Create the raw URL for downloading the file
 	rawURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", owner, repo, gitRef, path)
+	Debugf("handleGitHubBlob: using raw URL='%s'", rawURL)
 
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -38,9 +43,12 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 	// Download the file
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		Debugf("handleGitHubBlob: HTTP request failed: %v", err)
 		return RuleSource{}, fmt.Errorf("failed to download GitHub file: %w", err)
 	}
 	defer resp.Body.Close()
+
+	Debugf("handleGitHubBlob: HTTP status code: %d %s", resp.StatusCode, resp.Status)
 
 	if resp.StatusCode != http.StatusOK {
 		return RuleSource{}, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, resp.Status)
@@ -52,8 +60,17 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 		return RuleSource{}, fmt.Errorf("failed to read GitHub file content: %w", err)
 	}
 
+	Debugf("handleGitHubBlob: successfully read %d bytes", len(content))
+
 	// Write to .cursor/rules/key.mdc
 	targetPath := filepath.Join(cursorDir, key+".mdc")
+	Debugf("handleGitHubBlob: writing to '%s'", targetPath)
+
+	// Ensure parent directories exist for hierarchical keys
+	if err := ensureRuleDirectory(cursorDir, key); err != nil {
+		return RuleSource{}, fmt.Errorf("failed preparing directory for rule '%s': %w", key, err)
+	}
+
 	err = os.WriteFile(targetPath, content, 0o644)
 	if err != nil {
 		return RuleSource{}, fmt.Errorf("failed to write rule file: %w", err)
@@ -91,6 +108,7 @@ func handleGitHubBlob(ctx context.Context, cursorDir, ref string) (RuleSource, e
 	// Calculate and store the content hash for future upgrade checks
 	result.ContentSHA256 = calculateSHA256(content)
 
+	Debugf("handleGitHubBlob: completed successfully with key='%s'", key)
 	return result, nil
 }
 
@@ -139,71 +157,4 @@ func handleGitHubDir(cursorDir, ref string) (RuleSource, error) {
 	return RuleSource{}, fmt.Errorf("GitHub directory references are not yet supported: %s", ref)
 }
 
-// handleLocalFile handles a local file reference.
-func handleLocalFile(cursorDir, ref string, isAbs bool) (RuleSource, error) {
-	// 1. Validate path and ensure it's readable
-	var fullPath string
-	if isAbs {
-		fullPath = ref
-	} else {
-		var err error
-		fullPath, err = filepath.Abs(ref)
-		if err != nil {
-			return RuleSource{}, fmt.Errorf("failed to resolve path %s: %w", ref, err)
-		}
-	}
-
-	// Check if the file exists and is readable
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		return RuleSource{}, fmt.Errorf("failed to access file %s: %w", fullPath, err)
-	}
-
-	if info.IsDir() {
-		return RuleSource{}, fmt.Errorf("%s is a directory, not a file", fullPath)
-	}
-
-	// 2. Read the file
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		return RuleSource{}, fmt.Errorf("failed to read file %s: %w", fullPath, err)
-	}
-
-	// 3. Generate rule key and determine destination filename
-	ruleKey := generateRuleKey(ref)
-	destFilename := ruleKey + ".mdc"
-	destPath := filepath.Join(cursorDir, destFilename)
-
-	// 4. Write to .cursor/rules
-	err = os.WriteFile(destPath, data, 0o600)
-	if err != nil {
-		return RuleSource{}, fmt.Errorf("failed to write to %s: %w", destPath, err)
-	}
-
-	// 5. Create and return RuleSource
-	sourceType := SourceTypeLocalAbs
-	if !isAbs {
-		sourceType = SourceTypeLocalRel
-		// Use relative path if possible for portability
-		// Get current working directory
-		cwd, err := os.Getwd()
-		if err == nil {
-			rel, err := filepath.Rel(cwd, fullPath)
-			if err == nil {
-				fullPath = rel
-			}
-		}
-	}
-
-	// Create the rule source
-	result := RuleSource{
-		Key:        ruleKey,
-		SourceType: sourceType,
-		Reference:  ref,
-		LocalFiles: []string{destFilename},
-		// Calculate and store content hash for future modification checks
-		ContentSHA256: calculateSHA256(data),
-	}
-
-	return result, nil
-}
+// handleLocalFile is now moved to manager_local_handlers.go
