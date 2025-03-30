@@ -1,0 +1,97 @@
+---
+description: Envs, Environment Variables and Secrets Configuration
+globs: **/*.go
+alwaysApply: false
+---
+## Environment Configuration Guidelines
+
+When working with environment configuration, follow these principles to maintain consistency, testability, and maintainability:
+
+### ❌ Avoid Direct Environment Variable Access
+
+- Do **not** use `os.Getenv()` directly in your code.
+- Access environment variables only through the centralized configuration system.
+
+### ✅ Use Centralized Configuration
+
+- Define all configuration fields in the `Configuration` struct inside `internal/config/main.go`.
+- Use struct tags to map environment variables and define defaults.
+- Mark required fields where necessary to ensure correctness.
+
+### Example Before (Incorrect Approach)
+```go
+func NewTemporalClient() (*TemporalClient, error) {
+    apiKey := os.Getenv("TEMPORAL_API_KEY")
+    namespace := os.Getenv("TEMPORAL_NAMESPACE")
+    if namespace == "" {
+        namespace = "default.namespace"
+    }
+    hostPort := os.Getenv("TEMPORAL_HOST_PORT")
+}
+```
+
+### Example After (Correct Approach)
+```go
+// Define configuration fields
+ type Configuration struct {
+     TemporalAPIKey    string `env:"TEMPORAL_API_KEY" envDefault:""`
+     TemporalNamespace string `env:"TEMPORAL_NAMESPACE" envDefault:"default.namespace"`
+     TemporalHostPort  string `env:"TEMPORAL_HOST_PORT" envDefault:"us-west-2.aws.api.temporal.io:7233"`
+ }
+
+// Use the configuration in your components
+func NewTemporalClient(cfg *config.Configuration) (*TemporalClient, error) {
+    apiKey := cfg.TemporalAPIKey
+    namespace := cfg.TemporalNamespace
+    hostPort := cfg.TemporalHostPort
+}
+```
+
+### Benefits of This Approach
+
+1. **Centralized Configuration:** All environment settings are in one place.
+2. **Consistent Defaults:** Defaults are defined explicitly in struct tags.
+3. **Easy Testing:** The `Configuration` struct allows easy mocking for tests.
+4. **Improved Readability & Maintainability:** Developers can quickly find and understand configuration settings.
+5. **Validation Support:** Required fields are validated at startup.
+
+### How to Add a New Configuration Option
+
+1. Add a field to the `Configuration` struct in `internal/config/main.go`.
+2. Use the `env` tag to specify the environment variable.
+3. Set a default value using `envDefault`.
+4. Mark required fields where applicable.
+
+Example:
+```go
+type Configuration struct {
+    NewServiceURL      string `env:"NEW_SERVICE_URL,required"`
+    NewServiceTimeout  int    `env:"NEW_SERVICE_TIMEOUT" envDefault:"30"`
+}
+```
+
+### How to Use Configuration in Components
+
+- Accept configuration as a parameter in constructors.
+- Use the typed struct fields instead of parsing environment variables manually.
+- Never access `os.Getenv()` outside the configuration package.
+
+Example:
+```go
+package myservice
+import "payments/internal/config"
+
+type MyService struct {
+    serviceURL string
+    timeout    int
+}
+
+func NewMyService(cfg *config.Configuration) *MyService {
+    return &MyService{
+        serviceURL: cfg.NewServiceURL,
+        timeout:    cfg.NewServiceTimeout,
+    }
+}
+```
+
+Following these guidelines ensures consistency, better testability, and cleaner code when dealing with environment configuration.
