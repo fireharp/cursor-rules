@@ -1,7 +1,0 @@
-if you have `CR_SETUP` or `crsetup` or `CRSETUP` or user just expresses some intent to "setup cursor rules for this project" in general in request
-
-launch bash script immetiately
-
-```bash
-go-claude/bin/cursor-rulse setup
-```

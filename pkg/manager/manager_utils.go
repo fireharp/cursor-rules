@@ -318,9 +318,16 @@ func parseUsernamePathRule(ref string) (string, []string, bool) {
 	}
 
 	username := matches[1]
-	pathParts := strings.Split(matches[3], "/")
+	// Capture the second part (repo) and include it with the rest of the path
+	firstPart := matches[2]
+	remainingParts := strings.Split(matches[3], "/")
 
-	return username, pathParts, true
+	// Create the complete path array with the repo as the first element
+	allParts := make([]string, 0, len(remainingParts)+1)
+	allParts = append(allParts, firstPart)
+	allParts = append(allParts, remainingParts...)
+
+	return username, allParts, true
 }
 
 // parseUsernameRuleWithSha parses a reference in the username/rule:sha format.
@@ -393,7 +400,7 @@ func matchGlob(g glob.Glob, path string) bool {
 func generateRuleKey(ref string) string {
 	fmt.Printf("Debug: generateRuleKey: input ref='%s'\n", ref)
 
-	// For GitHub URLs, extract owner/repo/path
+	// 1) If this is a GitHub blob/tree URL, parse out owner/repo/path
 	if isGitHubBlobURL(ref) {
 		matches := githubBlobPattern.FindStringSubmatch(ref)
 		if len(matches) == 5 {
@@ -402,22 +409,18 @@ func generateRuleKey(ref string) string {
 			path := matches[4]
 
 			// Generate a more contextual key with path structure preserved
-			// Take the filename without extension
 			base := filepath.Base(path)
 			ext := filepath.Ext(base)
 			baseName := strings.TrimSuffix(base, ext)
 
-			// If it's from the cursor-rules-collection repo, use a special format
 			if repo == "cursor-rules-collection" {
-				// For cursor-rules-collection, use username/path format
-				// Remove the .mdc extension for cleaner keys
+				// e.g. "username/path/to/rule"
 				pathKey := strings.TrimSuffix(path, filepath.Ext(path))
 				key := owner + "/" + pathKey
 				fmt.Printf("Debug: generateRuleKey: GitHub cursor-rules-collection key='%s'\n", key)
 				return key
 			} else {
-				// For other repos, include the repo name in the path
-				// owner/repo/path format
+				// e.g. "owner/repo/rule"
 				key := owner + "/" + repo + "/" + baseName
 				fmt.Printf("Debug: generateRuleKey: GitHub other repo key='%s'\n", key)
 				return key
@@ -425,89 +428,143 @@ func generateRuleKey(ref string) string {
 		}
 	}
 
-	// For username/rule format
-	if isUsernameRule(ref) {
-		username, rule, _ := parseUsernameRule(ref)
-		// Use namespace format: username/rule
-		key := username + "/" + rule
-		fmt.Printf("Debug: generateRuleKey: username/rule key='%s'\n", key)
-		return key
-	}
-
-	// For username/path/rule format with 3+ parts
-	if isUsernamePathRule(ref) {
-		username, pathParts, _ := parseUsernamePathRule(ref)
-
-		// We need to determine if this is a repo/path format or a path within cursor-rules-collection
-		if len(pathParts) >= 2 {
-			pathWithoutExt := strings.Join(pathParts, "/")
-			// Remove .mdc extension if present on the last part
-			lastPart := pathParts[len(pathParts)-1]
-			if strings.HasSuffix(lastPart, ".mdc") {
-				pathParts[len(pathParts)-1] = strings.TrimSuffix(lastPart, ".mdc")
-				pathWithoutExt = strings.Join(pathParts, "/")
-			}
-			key := username + "/" + pathWithoutExt
-			fmt.Printf("Debug: generateRuleKey: username/path/rule key='%s'\n", key)
-			return key
-		}
-	}
-
-	// For username/rule:sha or username/rule@tag format
+	// 2) If it's strictly username/rule:sha or username/rule@tag
+	//    (i.e. "username/rule:abc123" => "username/rule-abc123")
 	if isUsernameRuleWithSha(ref) {
-		username, rule, _, _ := parseUsernameRuleWithSha(ref)
-		key := username + "/" + rule
+		username, rule, sha, _ := parseUsernameRuleWithSha(ref)
+		// Incorporate the SHA into the key
+		key := fmt.Sprintf("%s/%s-%s", username, rule, sha)
 		fmt.Printf("Debug: generateRuleKey: username/rule:sha key='%s'\n", key)
 		return key
 	}
-
 	if isUsernameRuleWithTag(ref) {
-		username, rule, _, _ := parseUsernameRuleWithTag(ref)
-		key := username + "/" + rule
+		username, rule, tag, _ := parseUsernameRuleWithTag(ref)
+		// Incorporate the tag into the key
+		key := fmt.Sprintf("%s/%s-%s", username, rule, tag)
 		fmt.Printf("Debug: generateRuleKey: username/rule@tag key='%s'\n", key)
 		return key
 	}
 
-	// For file paths, create more specific keys that preserve more path information
+	// 3) If it's a username/rule pattern with 2 parts only (no SHA/tag)
+	//    e.g. "username/rule-name" => "username/rule-name"
+	if isUsernameRule(ref) {
+		username, rule, _ := parseUsernameRule(ref)
+		key := fmt.Sprintf("%s/%s", username, rule)
+		fmt.Printf("Debug: generateRuleKey: username/rule key='%s'\n", key)
+		return key
+	}
+
+	// 4) If it's a username/path/rule pattern with 3+ parts (also watch for possible :sha or @tag on last part)
+	//    e.g. "username/repo/path/to/rule@v1"
+	if isUsernamePathRule(ref) {
+		// Parse out username plus remainder
+		username, pathParts, _ := parseUsernamePathRule(ref)
+
+		// Check if the last part has :sha or @tag
+		last := pathParts[len(pathParts)-1]
+
+		var shaOrTag string
+		var baseRule string
+		if strings.Contains(last, ":") {
+			// Could be "rule:sha"
+			// Manual parse as custom helper won't handle path components
+			parts := strings.SplitN(last, ":", 2)
+			if len(parts) == 2 {
+				baseRule = parts[0]
+				shaOrTag = parts[1]
+				// Replace the last part with baseRule (no :sha)
+				pathParts[len(pathParts)-1] = baseRule
+			}
+		} else if strings.Contains(last, "@") {
+			// Could be "rule@tag"
+			parts := strings.SplitN(last, "@", 2)
+			if len(parts) == 2 {
+				baseRule = parts[0]
+				shaOrTag = parts[1]
+				// Replace the last part with baseRule (no @tag)
+				pathParts[len(pathParts)-1] = baseRule
+			}
+		}
+
+		// Remove .mdc extension if present on the final part
+		lastIndex := len(pathParts) - 1
+		if strings.HasSuffix(pathParts[lastIndex], ".mdc") {
+			pathParts[lastIndex] = strings.TrimSuffix(pathParts[lastIndex], ".mdc")
+		}
+
+		// Re-join everything preserving the full path: "username/repo/path/to/rule"
+		joined := strings.Join(pathParts, "/")
+		key := fmt.Sprintf("%s/%s", username, joined)
+
+		// If there was a sha/tag, append it with a dash
+		if shaOrTag != "" {
+			key = key + "-" + shaOrTag
+		}
+
+		fmt.Printf("Debug: generateRuleKey: username/path/rule key='%s'\n", key)
+		return key
+	}
+
+	// 5) If it's an absolute path => "local/abs/someHash/filename"
 	if isAbsolutePath(ref) {
-		// Get just the filename without extension
 		base := filepath.Base(ref)
 		ext := filepath.Ext(base)
 		baseWithoutExt := strings.TrimSuffix(base, ext)
 
-		// Hash part of the path to avoid too long keys but still maintain uniqueness
-		// Only hash the directory part, not the filename
 		dir := filepath.Dir(ref)
 		hasher := sha256.New()
 		hasher.Write([]byte(dir))
-		pathHash := hex.EncodeToString(hasher.Sum(nil))[:8] // Use first 8 chars of hash
+		pathHash := hex.EncodeToString(hasher.Sum(nil))[:8]
 
 		key := "local/abs/" + pathHash + "/" + baseWithoutExt
 		fmt.Printf("Debug: generateRuleKey: absolute path key='%s'\n", key)
 		return key
-	} else if isRelativePath(ref) {
-		// For relative paths, try to preserve the structure
-		// Clean the path first to handle ./ and ../
+	}
+
+	// 6) If it's a relative path, check for globs vs normal files.
+	if isRelativePath(ref) {
 		cleanPath := filepath.Clean(ref)
 
-		// Remove the extension
+		if isGlobPattern(cleanPath) {
+			// Distinguish between single-star vs ** patterns
+			if strings.Contains(cleanPath, "**") {
+				// e.g. "path/to/**/file.mdc"
+				return "local/rel/path-to-deep-glob"
+			}
+			// Otherwise "local/rel/path-to-glob"
+			return "local/rel/path-to-glob"
+		}
+
+		// Otherwise, it's just a normal local file/folder
 		ext := filepath.Ext(cleanPath)
 		pathWithoutExt := strings.TrimSuffix(cleanPath, ext)
 
-		// Replace path separators with - to avoid creating nested directories
-		// but still maintain path structure information
+		// Replace path separators with '-'
 		normalized := strings.ReplaceAll(pathWithoutExt, string(filepath.Separator), "-")
 
-		// Remove any leading ./ or ../
+		// Handle special case for relative paths with ../
+		// First, make sure we actually clean the path to resolve the ../
+		// e.g., "../path/to/file" becomes "path-to-file" not "..-path-to-file"
+		if strings.HasPrefix(ref, "../") {
+			// For simplicity, just strip off leading "../" and change the rest
+			parts := strings.Split(normalized, "-")
+			if len(parts) > 1 && parts[0] == ".." {
+				// Remove the ".." part and join the rest
+				normalized = strings.Join(parts[1:], "-")
+			}
+		}
+
+		// Remove any leading ./ or ../ from the normalized path
 		normalized = strings.TrimPrefix(normalized, "./")
 		normalized = strings.TrimPrefix(normalized, "../")
+		normalized = strings.TrimPrefix(normalized, "..-")
 
 		key := "local/rel/" + normalized
 		fmt.Printf("Debug: generateRuleKey: relative path key='%s'\n", key)
 		return key
 	}
 
-	// For built-in templates, prefix with built-in to avoid conflicts
+	// 7) If we reach here, treat as built-in or fallback
 	fmt.Printf("Debug: generateRuleKey: defaulting to built-in/ prefix\n")
 	return "built-in/" + ref
 }

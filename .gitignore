@@ -9,3 +9,5 @@ examples/**/.cursor/rules/**
 PROGRESS.md
 LOCAL.md
 _drafts/
+testarea
+!testarea/run_integration_tests.sh

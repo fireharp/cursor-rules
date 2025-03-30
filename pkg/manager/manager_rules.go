@@ -87,7 +87,7 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 	var rule RuleSource
 	var err error
 
-	// Handle different reference types
+	// Handle different reference types in order from most specific to least specific
 	if isGlobPattern(ref) {
 		// Handle glob pattern
 		return handleGlobPattern(context.Background(), cursorDir, ref)
@@ -95,6 +95,12 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 		rule, err = handleGitHubBlob(context.Background(), cursorDir, ref)
 	} else if isGitHubTreeURL(ref) {
 		rule, err = handleGitHubDir(cursorDir, ref)
+	} else if isAbsolutePath(ref) {
+		// Check absolute paths before username patterns
+		rule, err = handleLocalFile(cursorDir, ref, true)
+	} else if isRelativePath(ref) {
+		// Check relative paths before username patterns
+		rule, err = handleLocalFile(cursorDir, ref, false)
 	} else if isUsernameRuleWithSha(ref) {
 		// Handle username/rule:sha format
 		rule, err = handleUsernameRuleWithSha(context.Background(), cursorDir, ref)
@@ -107,10 +113,6 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 	} else if isUsernamePathRule(ref) {
 		// Handle username/path/rule format
 		rule, err = handleUsernamePathRule(context.Background(), cursorDir, ref)
-	} else if isAbsolutePath(ref) {
-		rule, err = handleLocalFile(cursorDir, ref, true)
-	} else if isRelativePath(ref) {
-		rule, err = handleLocalFile(cursorDir, ref, false)
 	} else {
 		// Check if there's a default username and this is a simple rule name
 		defaultUsername := getDefaultUsername()
@@ -187,7 +189,7 @@ func handleUsernameRule(ctx context.Context, cursorDir, ref string) (RuleSource,
 
 	fmt.Printf("Debug: handleUsernameRule: username='%s', ruleName='%s'\n", username, ruleName)
 
-	// First, try to find it in username/cursor-rules-collection repo
+	// Try to find it in username/cursor-rules-collection repo at root level only
 	githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s.mdc", username, ruleName)
 	fmt.Printf("Debug: handleUsernameRule: trying URL: %s\n", githubURL)
 
@@ -203,21 +205,9 @@ func handleUsernameRule(ctx context.Context, cursorDir, ref string) (RuleSource,
 
 	fmt.Printf("Debug: handleUsernameRule: Primary URL failed with error: %v\n", err)
 
-	// If not found, try with potential paths (could be nested)
-	githubURL = fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s/%s.mdc", username, ruleName, ruleName)
-	fmt.Printf("Debug: handleUsernameRule: trying fallback URL: %s\n", githubURL)
-
-	rule, err = handleGitHubBlob(ctx, cursorDir, githubURL)
-
-	if err == nil {
-		// Found in the cursor-rules-collection repo in a subdirectory
-		rule.SourceType = SourceTypeGitHubShorthand
-		rule.Reference = ref // Store the original reference
-		fmt.Printf("Debug: handleUsernameRule: Found rule at fallback URL\n")
-		return rule, nil
-	}
-
-	fmt.Printf("Debug: handleUsernameRule: Fallback URL failed with error: %v\n", err)
+	// No subfolder fallback for username/rule format
+	// This is intentional - username/rule should only look for the rule at the root level
+	// If users want a nested rule, they should use username/path/rule format
 
 	return RuleSource{}, fmt.Errorf("rule not found in username/cursor-rules-collection: %s", ref)
 }
@@ -292,6 +282,37 @@ func handleUsernamePathRule(ctx context.Context, cursorDir, ref string) (RuleSou
 		}
 
 		fmt.Printf("Debug: handleUsernamePathRule: fallback URL failed with error: %v\n", err)
+	}
+
+	// Extra fallback: Try to handle the special case of "username/path/rule"
+	// This is specifically for fireharp/monorepo/monorepo type paths
+	if len(pathParts) >= 1 {
+		// Try to look for the file at "path/rule.mdc" in cursor-rules-collection
+		// This creates a URL like: https://github.com/fireharp/cursor-rules-collection/blob/main/monorepo/monorepo.mdc
+
+		// Join all path parts with /
+		fullPath := strings.Join(pathParts, "/")
+
+		// If the last part already has .mdc extension, don't add it again
+		if !strings.HasSuffix(fullPath, ".mdc") {
+			fullPath += ".mdc"
+		}
+
+		githubURL := fmt.Sprintf("https://github.com/%s/cursor-rules-collection/blob/main/%s",
+			username, fullPath)
+
+		fmt.Printf("Debug: handleUsernamePathRule: trying second fallback URL (nested structure): %s\n", githubURL)
+
+		rule, err := handleGitHubBlob(ctx, cursorDir, githubURL)
+		if err == nil {
+			// Found in the cursor-rules-collection repo with the nested structure
+			rule.SourceType = SourceTypeGitHubShorthand
+			rule.Reference = ref // Store the original reference
+			fmt.Printf("Debug: handleUsernamePathRule: Found rule in cursor-rules-collection nested structure\n")
+			return rule, nil
+		}
+
+		fmt.Printf("Debug: handleUsernamePathRule: second fallback URL failed with error: %v\n", err)
 	}
 
 	return RuleSource{}, fmt.Errorf("rule not found in any repo: %s", ref)

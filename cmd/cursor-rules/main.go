@@ -231,7 +231,7 @@ func handleAddCommand(cursorDir string, args []string, cmd *flag.FlagSet) error 
 	}
 
 	if cmd.NArg() < 1 {
-		fmt.Println("Usage: cursor-rules add <reference>")
+		fmt.Println("Usage: cursor-rules add <reference> [<reference2> ...]")
 		fmt.Println("  where <reference> can be:")
 		fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
 		fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
@@ -239,12 +239,15 @@ func handleAddCommand(cursorDir string, args []string, cmd *flag.FlagSet) error 
 		return nil
 	}
 
-	reference := cmd.Arg(0)
-	if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
-		return fmt.Errorf("error adding rule from reference: %w", err)
+	// Process all references provided
+	for i := 0; i < cmd.NArg(); i++ {
+		reference := cmd.Arg(i)
+		if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
+			return fmt.Errorf("error adding rule from reference %q: %w", reference, err)
+		}
+		fmt.Printf("Rule from %q added successfully\n", reference)
 	}
 
-	fmt.Printf("Rule from %q added successfully\n", reference)
 	return nil
 }
 
@@ -255,7 +258,7 @@ func handleAddRefCommand(cursorDir string, args []string, cmd *flag.FlagSet) err
 	}
 
 	if cmd.NArg() < 1 {
-		fmt.Println("Usage: cursor-rules add-ref <reference>")
+		fmt.Println("Usage: cursor-rules add-ref <reference> [<reference2> ...]")
 		fmt.Println("  where <reference> can be:")
 		fmt.Println("  - Local file path: /path/to/rule.mdc or ./relative/path.mdc")
 		fmt.Println("  - GitHub file: https://github.com/user/repo/blob/main/path/to/rule.mdc")
@@ -263,12 +266,15 @@ func handleAddRefCommand(cursorDir string, args []string, cmd *flag.FlagSet) err
 		return nil
 	}
 
-	reference := cmd.Arg(0)
-	if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
-		return fmt.Errorf("error adding rule from reference: %w", err)
+	// Process all references provided
+	for i := 0; i < cmd.NArg(); i++ {
+		reference := cmd.Arg(i)
+		if err := manager.AddRuleByReference(cursorDir, reference); err != nil {
+			return fmt.Errorf("error adding rule from reference %q: %w", reference, err)
+		}
+		fmt.Printf("Rule from %q added successfully\n", reference)
 	}
 
-	fmt.Printf("Rule from %q added successfully\n", reference)
 	return nil
 }
 
@@ -477,8 +483,8 @@ func showHelp() {
 	fmt.Println("\nCommands:")
 	fmt.Println("  init                           Initialize Cursor Rules with just the init template")
 	fmt.Println("  setup                          Run project type detection and setup appropriate rules")
-	fmt.Println("  add <reference>                Add a rule from a reference (local file or GitHub URL)")
-	fmt.Println("  add-ref <reference>            (Alias for 'add') Add rule using a direct reference")
+	fmt.Println("  add <reference> [<ref2> ...]   Add rule(s) from reference(s) (local file or GitHub URL)")
+	fmt.Println("  add-ref <reference> [<ref2> ...] (Alias for 'add') Add rule(s) using direct reference(s)")
 	fmt.Println("  remove <ruleKey>               Remove an installed rule")
 	fmt.Println("  upgrade <ruleKey>              Upgrade a rule to the latest version")
 	fmt.Println("  update <ruleKey>               (Alias for 'upgrade') Update a rule to the latest version")
@@ -494,6 +500,7 @@ func showHelp() {
 	fmt.Println("\nExamples:")
 	fmt.Println("  cursor-rules add https://github.com/user/repo/blob/main/path/to/rule.mdc")
 	fmt.Println("  cursor-rules add ./local/path/to/rule.mdc")
+	fmt.Println("  cursor-rules add rule1.mdc rule2.mdc rule3.mdc")
 	fmt.Println("  cursor-rules upgrade my-rule")
 	fmt.Println("  cursor-rules list --detailed")
 }
