@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -249,55 +251,78 @@ func generateRuleKey(ref string) string {
 	if isGitHubBlobURL(ref) {
 		matches := githubBlobPattern.FindStringSubmatch(ref)
 		if len(matches) == 5 {
-			// Use owner-repo-file format
 			owner := matches[1]
 			repo := matches[2]
 			path := matches[4]
 
-			// Take just the filename without extension as the base
+			// Generate a more contextual key with path structure preserved
+			// Take the filename without extension
 			base := filepath.Base(path)
 			ext := filepath.Ext(base)
 			baseName := strings.TrimSuffix(base, ext)
 
-			return owner + "-" + repo + "-" + baseName
+			// If it's from the cursor-rules-collection repo, use a special format
+			if repo == "cursor-rules-collection" {
+				// For cursor-rules-collection, use username/path format
+				// Remove the .mdc extension for cleaner keys
+				pathKey := strings.TrimSuffix(path, filepath.Ext(path))
+				return owner + "/" + pathKey
+			} else {
+				// For other repos, include the repo name in the path
+				// owner/repo/path format
+				return owner + "/" + repo + "/" + baseName
+			}
 		}
 	}
 
 	// For username/rule format
 	if isUsernameRule(ref) {
 		username, rule, _ := parseUsernameRule(ref)
-		return username + "-" + rule
+		// Use namespace format: username/rule
+		return username + "/" + rule
 	}
 
 	// For username/path/rule format with 3+ parts
 	if isUsernamePathRule(ref) {
 		username, pathParts, _ := parseUsernamePathRule(ref)
-		// If it has 3+ parts, assume username/repo/path format
+
+		// We need to determine if this is a repo/path format or a path within cursor-rules-collection
 		if len(pathParts) >= 2 {
-			repo := pathParts[0]
-			rule := pathParts[len(pathParts)-1]
-			// Remove file extension if present
-			ext := filepath.Ext(rule)
-			baseName := strings.TrimSuffix(rule, ext)
-			return username + "-" + repo + "-" + baseName
+			pathWithoutExt := strings.Join(pathParts, "/")
+			// Remove .mdc extension if present on the last part
+			lastPart := pathParts[len(pathParts)-1]
+			if strings.HasSuffix(lastPart, ".mdc") {
+				pathParts[len(pathParts)-1] = strings.TrimSuffix(lastPart, ".mdc")
+				pathWithoutExt = strings.Join(pathParts, "/")
+			}
+			return username + "/" + pathWithoutExt
 		}
 	}
 
 	// For username/rule:sha or username/rule@tag format
 	if isUsernameRuleWithSha(ref) {
 		username, rule, _, _ := parseUsernameRuleWithSha(ref)
-		return username + "-" + rule
+		return username + "/" + rule
 	}
 
 	if isUsernameRuleWithTag(ref) {
 		username, rule, _, _ := parseUsernameRuleWithTag(ref)
-		return username + "-" + rule
+		return username + "/" + rule
 	}
 
-	// For file paths, just use the basename without extension
+	// For file paths, use a source-prefixed format to avoid conflicts
 	base := filepath.Base(ref)
 	ext := filepath.Ext(base)
-	return strings.TrimSuffix(base, ext)
+	baseWithoutExt := strings.TrimSuffix(base, ext)
+
+	if isAbsolutePath(ref) {
+		return "local/abs/" + baseWithoutExt
+	} else if isRelativePath(ref) {
+		return "local/rel/" + baseWithoutExt
+	}
+
+	// For built-in templates, prefix with built-in to avoid conflicts
+	return "built-in/" + baseWithoutExt
 }
 
 // fileExists checks if a file exists.
@@ -355,7 +380,87 @@ func shortCommit(commit string) string {
 // listGitHubRepoFiles lists files in a GitHub repository that match a pattern.
 // Returns a list of paths that match the pattern.
 func listGitHubRepoFiles(ctx context.Context, owner, repo, ref, pattern string) ([]string, error) {
-	// TODO: Implement this using GitHub API
-	// For now, return an error
-	return nil, fmt.Errorf("listing GitHub files with glob patterns is not yet implemented")
+	// Compile the glob pattern for matching
+	g, err := compileGlob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid glob pattern: %w", err)
+	}
+
+	// Start with the root directory
+	return recursivelyListGitHubFiles(ctx, owner, repo, ref, "", g, pattern)
+}
+
+// recursivelyListGitHubFiles recursively traverses the GitHub repository structure
+// and finds all files that match the glob pattern.
+func recursivelyListGitHubFiles(ctx context.Context, owner, repo, ref, path string, g glob.Glob, pattern string) ([]string, error) {
+	// Construct the API URL for the repository contents
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/contents/%s", owner, repo, path)
+	if ref != "" && ref != "main" {
+		apiURL += fmt.Sprintf("?ref=%s", ref)
+	}
+
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for GitHub API: %w", err)
+	}
+
+	// Add headers
+	req.Header.Add("Accept", "application/vnd.github.v3+json")
+
+	// Send the request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repository contents: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	// Parse the response
+	var contents []struct {
+		Name        string `json:"name"`
+		Path        string `json:"path"`
+		Type        string `json:"type"`
+		DownloadURL string `json:"download_url"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&contents); err != nil {
+		return nil, fmt.Errorf("failed to parse GitHub API response: %w", err)
+	}
+
+	var matches []string
+	var subDirs []string
+
+	// Process each file/directory
+	for _, item := range contents {
+		// Check if it's a directory or a file
+		if item.Type == "dir" {
+			// Save directories for recursive processing
+			subDirs = append(subDirs, item.Path)
+		} else if item.Type == "file" {
+			// Check if the file matches our pattern and ends with .mdc
+			if (g == nil || matchGlob(g, item.Path)) && strings.HasSuffix(item.Name, ".mdc") {
+				matches = append(matches, item.Path)
+			}
+		}
+	}
+
+	// Recursively process subdirectories if glob pattern indicates we should
+	// (check the original pattern string for wildcard characters)
+	if strings.Contains(pattern, "**") || strings.Contains(pattern, "/") {
+		for _, subDir := range subDirs {
+			subMatches, err := recursivelyListGitHubFiles(ctx, owner, repo, ref, subDir, g, pattern)
+			if err != nil {
+				// Just log errors for subdirectories but don't fail the entire operation
+				fmt.Printf("Warning: Error listing files in %s: %v\n", subDir, err)
+				continue
+			}
+			matches = append(matches, subMatches...)
+		}
+	}
+
+	return matches, nil
 }

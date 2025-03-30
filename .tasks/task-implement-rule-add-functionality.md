@@ -17,11 +17,13 @@
 - [x] Step 4: Add glob pattern support for rule paths
   - [x] Implement basic glob support (e.g., path/\*)
   - [x] Add advanced glob support (e.g., path/\*_/_ for recursive)
-- [ ] Step 5: Fix linting issues and integration bugs
-  - [ ] Resolve initialization cycle for AddRuleByReferenceFn
-  - [ ] Add templates.ListTemplates() implementation
-  - [ ] Ensure proper glob functionality without recursive definition
-- [ ] Step 6: Add tests for the new functionality
+- [x] Step 5: Fix linting issues and integration bugs
+  - [x] Resolve initialization cycle for AddRuleByReferenceFn
+  - [x] Add templates.ListTemplates() implementation
+  - [x] Ensure proper glob functionality without recursive definition
+- [ ] Step 6: Add GitHub API implementation for repo file listing
+  - [ ] Implement listGitHubRepoFiles() to enable glob pattern support
+  - [ ] Test against real repositories
 - [ ] Step 7: Update documentation
 - [ ] Step 8: Create PR and request review
 
@@ -79,18 +81,24 @@ Need to extend this to handle:
 
 ## Current Implementation Status
 
-We have added:
+We have successfully implemented:
 
 1. Username/rule path resolution for cursor-rules-collection repos
 2. Username/path/rule path resolution with fallback to repositories
 3. SHA and tag reference support
 4. Default username configuration for simple rule names
-5. Glob pattern matching functionality
+5. Glob pattern matching functionality in principle
+
+Fixed the following issues:
+
+1. Initialization cycle for AddRuleByReferenceFn by breaking the circular dependency
+2. Added templates.ListTemplates() function
+3. Removed recursive calls to prevent cycles
 
 ## Remaining Issues
 
-1. Fix initialization cycle for AddRuleByReferenceFn (appears we have a circular dependency)
-2. Implement or modify the templates.ListTemplates() function to support glob matching against templates
-3. Complete the listGitHubRepoFiles() function to fetch repository file lists
-4. Add more error handling and diagnostics for different resolution attempts
-5. Add tests for all the new functionality
+1. The GitHub API implementation for repository file listing is still a stub
+2. We need to implement the actual GitHub API client to fetch repository contents
+3. Testing with real patterns against the cursor-rules-collection repository
+4. Documentation for the new functionality
+5. Additional test coverage for the new features
