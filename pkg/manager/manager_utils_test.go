@@ -1,7 +1,13 @@
 package manager
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/fireharp/cursor-rules/pkg/templates"
 )
 
 func TestPathDetection(t *testing.T) {
@@ -276,67 +282,78 @@ func TestGenerateRuleKey(t *testing.T) {
 	}
 }
 
-// Test the resolution and fallback logic
+// Test the DefaultUsernameHandler which implements fallback logic
 func TestResolveRuleFallback(t *testing.T) {
-	// Skip if it's just a unit test that can't test network dependencies
-	t.Skip("This is an integration test that requires network access")
+	// This test verifies that DefaultUsernameHandler properly implements
+	// fallback resolution for rules using the default username
 
-	tests := []struct {
-		name          string
-		input         string
-		expectFound   bool
-		expectRepoURL string // Expected repository URL after resolution
-		expectPath    string // Expected path within repository
-	}{
-		{
-			name:          "First check default collection",
-			input:         "rule-name",
-			expectFound:   true,
-			expectRepoURL: "https://github.com/username/cursor-rules-collection",
-			expectPath:    "rule-name.mdc",
-		},
-		{
-			name:          "Then check specific repo",
-			input:         "username/repo/rule-name",
-			expectFound:   true,
-			expectRepoURL: "https://github.com/username/repo",
-			expectPath:    "rule-name.mdc",
-		},
-		{
-			name:          "Check with SHA",
-			input:         "username/rule-name:abc123",
-			expectFound:   true,
-			expectRepoURL: "https://github.com/username/cursor-rules-collection@abc123",
-			expectPath:    "rule-name.mdc",
-		},
-		{
-			name:          "Check with tag",
-			input:         "username/rule-name@v1.0",
-			expectFound:   true,
-			expectRepoURL: "https://github.com/username/cursor-rules-collection@v1.0",
-			expectPath:    "rule-name.mdc",
-		},
+	// Create a mock implementation of getDefaultUsername to avoid
+	// dependencies on external files or environment variables
+	origGetDefaultUsername := getDefaultUsername
+	defer func() {
+		getDefaultUsername = origGetDefaultUsername
+	}()
+
+	getDefaultUsername = func() string {
+		return "testuser"
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Assuming there's a resolveRule function that implements the fallback logic
-			// repoURL, path, found := resolveRule(tt.input)
-
-			// if found != tt.expectFound {
-			//     t.Errorf("resolveRule(%q).found = %v, want %v", tt.input, found, tt.expectFound)
-			// }
-
-			// if repoURL != tt.expectRepoURL {
-			//     t.Errorf("resolveRule(%q).repoURL = %v, want %v", tt.input, repoURL, tt.expectRepoURL)
-			// }
-
-			// if path != tt.expectPath {
-			//     t.Errorf("resolveRule(%q).path = %v, want %v", tt.input, path, tt.expectPath)
-			// }
-
-			// This test is stubbed for now until the resolveRule function exists
-			t.Log("This test is stubbed and will pass until the resolveRule function is implemented")
-		})
+	// Create a temporary directory
+	tempDir, err := os.MkdirTemp("", "cursor-rules-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
+	defer os.RemoveAll(tempDir)
+
+	// Create a cursor rules directory
+	cursorDir := filepath.Join(tempDir, ".cursor", "rules")
+	if err := os.MkdirAll(cursorDir, 0o755); err != nil {
+		t.Fatalf("Failed to create cursor rules dir: %v", err)
+	}
+
+	// Initialize a handler to test
+	handler := &DefaultUsernameHandler{}
+
+	// Test that it will properly handle refs when a default username is set
+	if !handler.CanHandle("rule-name") {
+		t.Error("DefaultUsernameHandler.CanHandle() returned false when default username is set")
+	}
+
+	// Test the fallback strategy for templates
+	getDefaultUsername = func() string {
+		return "testuser"
+	}
+
+	// Add a mock template to test the fallback to templates
+	if templates.Categories["test"] == nil {
+		templates.Categories["test"] = &templates.TemplateCategory{
+			Name:        "Test",
+			Description: "Test templates",
+			Templates:   make(map[string]templates.Template),
+		}
+	}
+	templates.Categories["test"].Templates["test-template"] = templates.Template{
+		Name:        "Test Template",
+		Description: "A test template",
+		Content:     "# Test template content",
+		Category:    "test",
+	}
+
+	// Process should normally call GitHub, but we don't want to actually do that in tests
+	// So we'll test the template fallback path
+	_, err = handler.Process(context.Background(), cursorDir, "test-template")
+
+	// Verify we got the appropriate ErrTemplateFound error
+	var templateErr *ErrTemplateFound
+	if !errors.As(err, &templateErr) {
+		t.Errorf("Expected ErrTemplateFound, got: %v", err)
+	} else {
+		if templateErr.Category != "test" || templateErr.Name != "test-template" {
+			t.Errorf("Expected template category 'test' and name 'test-template', got category '%s' and name '%s'",
+				templateErr.Category, templateErr.Name)
+		}
+	}
+
+	// Clean up test template
+	delete(templates.Categories["test"].Templates, "test-template")
 }

@@ -4,15 +4,15 @@
 
 ### High Priority
 
-- [ ] Step 1: Update `TestAddRuleByReference` to test the handler-based implementation
-- [ ] Step 2: Refactor `TestRestoreFromShared` to work with the new structure
-- [ ] Step 3: Review and update or remove `TestResolveRuleFallback`
-- [ ] Step 4: Replace string-based error detection (`template_found:`) with custom error types
-- [ ] Step 5: Improve error aggregation in glob handlers
+- [x] Step 1: Update `TestAddRuleByReference` to test the handler-based implementation
+- [x] Step 2: Refactor `TestRestoreFromShared` to work with the new structure
+- [x] Step 3: Review and update or remove `TestResolveRuleFallback`
+- [x] Step 4: Replace string-based error detection (`template_found:`) with custom error types
+- [x] Step 5: Improve error aggregation in glob handlers
 
 ### Medium Priority
 
-- [ ] Step 6: Move `processLocalFile` from `manager_glob.go` to `manager_local_handlers.go`
+- [x] Step 6: Move `processLocalFile` from `manager_glob.go` to `manager_local_handlers.go`
 - [ ] Step 7: Implement the `TODO` in `getDefaultUsername`
 - [ ] Step 8: Review and standardize handler consistency (especially for glob handlers)
 

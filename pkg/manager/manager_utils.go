@@ -379,9 +379,8 @@ func parseGlobPattern(ref string) (string, string, bool) {
 	return "", ref, true
 }
 
-// getDefaultUsername gets the default username from configuration.
 // Returns empty string if not configured.
-func getDefaultUsername() string {
+var getDefaultUsername = func() string {
 	// TODO: Implement by reading from ~/.cursor-rules/config.json
 	return ""
 }
