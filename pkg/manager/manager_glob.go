@@ -193,82 +193,8 @@ func handleLocalGlobPattern(ctx context.Context, cursorDir, pattern string, g gl
 	return nil
 }
 
-// processLocalFile processes a local file and returns a RuleSource without updating the lockfile.
-// This is a helper function extracted from handleLocalFile to be used with glob patterns.
-func processLocalFile(cursorDir, filePath string, isAbs bool) (RuleSource, error) {
-	// 1. Validate path and ensure it's readable
-	var fullPath string
-	if isAbs {
-		fullPath = filePath
-	} else {
-		var err error
-		fullPath, err = filepath.Abs(filePath)
-		if err != nil {
-			return RuleSource{}, fmt.Errorf("failed to resolve path %s: %w", filePath, err)
-		}
-	}
-
-	// Check if the file exists and is readable
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		return RuleSource{}, fmt.Errorf("failed to access file %s: %w", fullPath, err)
-	}
-
-	if info.IsDir() {
-		return RuleSource{}, fmt.Errorf("%s is a directory, not a file", fullPath)
-	}
-
-	// 2. Read the file
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		return RuleSource{}, fmt.Errorf("failed to read file %s: %w", fullPath, err)
-	}
-
-	// 3. Generate rule key and determine destination filename
-	ruleKey := generateRuleKey(filePath)
-	destFilename := ruleKey + ".mdc"
-	destPath := filepath.Join(cursorDir, destFilename)
-
-	// Ensure parent directories exist for hierarchical keys
-	if err := ensureRuleDirectory(cursorDir, ruleKey); err != nil {
-		return RuleSource{}, fmt.Errorf("failed preparing directory for rule '%s': %w", ruleKey, err)
-	}
-
-	// 4. Write to .cursor/rules
-	err = os.WriteFile(destPath, data, 0o600)
-	if err != nil {
-		return RuleSource{}, fmt.Errorf("failed to write to %s: %w", destPath, err)
-	}
-
-	// 5. Create and return RuleSource
-	sourceType := SourceTypeLocalAbs
-	if !isAbs {
-		sourceType = SourceTypeLocalRel
-		// Use relative path if possible for portability
-		// Get current working directory
-		cwd, err := os.Getwd()
-		if err == nil {
-			rel, err := filepath.Rel(cwd, fullPath)
-			if err == nil {
-				fullPath = rel
-			}
-		}
-	}
-
-	// Create the rule source
-	result := RuleSource{
-		Key:        ruleKey,
-		SourceType: sourceType,
-		Reference:  filePath,
-		LocalFiles: []string{destFilename},
-		// Calculate and store content hash for future modification checks
-		ContentSHA256: calculateSHA256(data),
-		// Store the original glob pattern
-		GlobPattern: filePath,
-	}
-
-	return result, nil
-}
+// processLocalFile has been moved to manager_local_handlers.go - this improves organization
+// by keeping all local file handling functions in the same file.
 
 // handleUsernameGlobPattern handles glob patterns with a username.
 // This looks for matching rules in the username's cursor-rules-collection repo.

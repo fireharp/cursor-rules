@@ -244,7 +244,10 @@ func (h *DefaultUsernameHandler) Process(ctx context.Context, cursorDir, ref str
 	if err == nil && tmpl.Category != "" {
 		// Found a template, but we need to add it differently
 		// Return a special error so the calling code knows to use AddRule instead
-		return RuleSource{}, fmt.Errorf("template_found:%s:%s", tmpl.Category, ref)
+		return RuleSource{}, &ErrTemplateFound{
+			Category: tmpl.Category,
+			Name:     ref,
+		}
 	}
 
 	return RuleSource{}, fmt.Errorf("rule not found with default username: %s", ref)

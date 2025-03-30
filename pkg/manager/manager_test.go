@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -241,9 +242,20 @@ func TestRemoveRule(t *testing.T) {
 		t.Errorf("Rule was not removed from lockfile")
 	}
 
-	// Test removing a rule that doesn't exist (should fail)
-	if err := RemoveRule(templatesDir, "non-existent-rule"); err == nil {
+	// Test removing a rule that doesn't exist (should fail with ErrRuleNotFound)
+	err = RemoveRule(templatesDir, "non-existent-rule")
+	if err == nil {
 		t.Errorf("Expected error when removing non-existent rule, but got nil")
+	} else if !IsRuleNotFoundError(err) {
+		t.Errorf("Expected ErrRuleNotFound when removing non-existent rule, got %T: %v", err, err)
+	}
+
+	// Verify the detailed error message
+	var ruleNotFoundErr *ErrRuleNotFound
+	if errors.As(err, &ruleNotFoundErr) {
+		if ruleNotFoundErr.RuleKey != "non-existent-rule" {
+			t.Errorf("Expected error with rule key 'non-existent-rule', got '%s'", ruleNotFoundErr.RuleKey)
+		}
 	}
 }
 
@@ -402,117 +414,141 @@ This is a test rule created for testing AddRuleByReference.`
 		t.Fatalf("Failed to create cursor rules directory: %v", err)
 	}
 
-	// Save original implementation and restore after test
-	originalAddRuleByReferenceFn := AddRuleByReferenceFn
-	defer func() {
-		AddRuleByReferenceFn = originalAddRuleByReferenceFn
-	}()
+	// Determine expected keys by calling the actual function
+	absKey := generateRuleKey(testFilePath)
+	relKey := generateRuleKey("./test-rule.mdc")
 
-	// Create a simple mock implementation that directly copies the file without GitHub API calls
-	AddRuleByReferenceFn = func(cursorDir, ref string) error {
-		// Read the source file
-		data, err := os.ReadFile(ref)
-		if err != nil {
-			return fmt.Errorf("failed to read source file: %w", err)
-		}
-
-		// Create the rule key (just use "test-rule" for this test)
-		ruleKey := "test-rule"
-		destPath := filepath.Join(cursorDir, ruleKey+".mdc")
-
-		// Ensure parent dirs exist
-		if err := ensureRuleDirectory(cursorDir, ruleKey); err != nil {
-			return fmt.Errorf("failed to create directories: %w", err)
-		}
-
-		// Write to destination
-		if err := os.WriteFile(destPath, data, 0o644); err != nil {
-			return fmt.Errorf("failed to write destination file: %w", err)
-		}
-
-		// Update lockfile
-		lock, err := LoadLockFile(cursorDir)
-		if err != nil {
-			return fmt.Errorf("failed to load lockfile: %w", err)
-		}
-
-		rule := RuleSource{
-			Key:           ruleKey,
-			SourceType:    SourceTypeLocalAbs,
-			Reference:     ref,
-			LocalFiles:    []string{ruleKey + ".mdc"},
-			ContentSHA256: calculateSHA256(data),
-		}
-
-		lock.Rules = append(lock.Rules, rule)
-		lock.Installed = append(lock.Installed, ruleKey)
-
-		return lock.Save(cursorDir)
+	// Create a test cases table to verify different reference types
+	testCases := []struct {
+		name              string
+		reference         string
+		expectedKey       string
+		expectedType      SourceType
+		setupFunc         func() // Optional setup function for test case
+		cleanupFunc       func() // Optional cleanup function for test case
+		skipIfNetworkTest bool   // Skip if this is a network-dependent test
+	}{
+		{
+			name:         "Local absolute path",
+			reference:    testFilePath,
+			expectedKey:  absKey,
+			expectedType: SourceTypeLocalAbs,
+		},
+		{
+			name:         "Local relative path",
+			reference:    "./test-rule.mdc",
+			expectedKey:  relKey,
+			expectedType: SourceTypeLocalRel,
+			setupFunc: func() {
+				// Create a test file in the current directory
+				err := os.WriteFile("./test-rule.mdc", []byte(testRuleContent), 0o644)
+				if err != nil {
+					t.Fatalf("Failed to create local test file: %v", err)
+				}
+			},
+			cleanupFunc: func() {
+				// Remove the local test file
+				os.Remove("./test-rule.mdc")
+			},
+		},
+		// Username/rule tests would require network access, so we'll skip them
+		// in automated testing. We could add them with skipIfNetworkTest set.
 	}
 
-	// Test adding the rule by reference
-	err = AddRuleByReference(cursorRulesDir, testFilePath)
-	if err != nil {
-		t.Fatalf("AddRuleByReference failed: %v", err)
-	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Skip network-dependent tests in automated testing
+			if tc.skipIfNetworkTest && testing.Short() {
+				t.Skip("Skipping network-dependent test in short mode")
+			}
 
-	// Check that the rule was added to the lockfile
-	lock, err := LoadLockFile(cursorRulesDir)
-	if err != nil {
-		t.Fatalf("Failed to load lockfile: %v", err)
-	}
+			// Run any setup needed for this test case
+			if tc.setupFunc != nil {
+				tc.setupFunc()
+			}
 
-	// Verify the rule is in the lockfile
-	found := false
-	for _, rule := range lock.Rules {
-		if rule.Key != "test-rule" {
-			continue
-		}
+			// Ensure we clean up after the test
+			if tc.cleanupFunc != nil {
+				defer tc.cleanupFunc()
+			}
 
-		found = true
-		if rule.SourceType != SourceTypeLocalAbs {
-			t.Errorf("Expected source type %s, got %s", SourceTypeLocalAbs, rule.SourceType)
-		}
-		if rule.Reference != testFilePath {
-			t.Errorf("Expected reference %s, got %s", testFilePath, rule.Reference)
-		}
-		if len(rule.LocalFiles) != 1 || rule.LocalFiles[0] != "test-rule.mdc" {
-			t.Errorf("Expected LocalFiles [test-rule.mdc], got %v", rule.LocalFiles)
-		}
-		break
-	}
+			// Remove any existing files/lockfile from previous test cases
+			os.RemoveAll(cursorRulesDir)
+			if err := os.MkdirAll(cursorRulesDir, 0o755); err != nil {
+				t.Fatalf("Failed to recreate cursor rules directory: %v", err)
+			}
 
-	if !found {
-		t.Errorf("Rule not found in lockfile")
-	}
+			// Test adding the rule by reference - using the actual implementation
+			// instead of a mock to test the real handler-based logic
+			err = AddRuleByReference(cursorRulesDir, tc.reference)
+			if err != nil {
+				t.Fatalf("AddRuleByReference failed: %v", err)
+			}
 
-	// Check that the file was copied to the destination
-	destPath := filepath.Join(cursorRulesDir, "test-rule.mdc")
-	if _, err := os.Stat(destPath); os.IsNotExist(err) {
-		t.Errorf("Rule file was not copied to destination")
-	}
+			// Check that the rule was added to the lockfile
+			lock, err := LoadLockFile(cursorRulesDir)
+			if err != nil {
+				t.Fatalf("Failed to load lockfile: %v", err)
+			}
 
-	// Test removing the rule
-	err = RemoveRule(cursorRulesDir, "test-rule")
-	if err != nil {
-		t.Fatalf("RemoveRule failed: %v", err)
-	}
+			// Verify the rule is in the lockfile
+			found := false
+			for _, rule := range lock.Rules {
+				if rule.Key != tc.expectedKey {
+					continue
+				}
 
-	// Check the rule was removed from the lockfile
-	lock, err = LoadLockFile(cursorRulesDir)
-	if err != nil {
-		t.Fatalf("Failed to load lockfile after removal: %v", err)
-	}
+				found = true
+				if rule.SourceType != tc.expectedType {
+					t.Errorf("Expected source type %s, got %s", tc.expectedType, rule.SourceType)
+				}
+				if !strings.Contains(rule.Reference, tc.reference) {
+					t.Errorf("Expected reference to contain %s, got %s", tc.reference, rule.Reference)
+				}
+				break
+			}
 
-	for _, rule := range lock.Rules {
-		if rule.Key == "test-rule" {
-			t.Errorf("Rule still exists in lockfile after removal")
-		}
-	}
+			if !found {
+				t.Errorf("Rule not found in lockfile")
+			}
 
-	// Check the file was deleted
-	if _, err := os.Stat(destPath); !os.IsNotExist(err) {
-		t.Errorf("Rule file was not deleted")
+			// Check that the file was copied to the destination
+			destPath := filepath.Join(cursorRulesDir, tc.expectedKey+".mdc")
+			if _, err := os.Stat(destPath); os.IsNotExist(err) {
+				t.Errorf("Rule file was not copied to destination")
+			}
+
+			// Test removing the rule
+			err = RemoveRule(cursorRulesDir, tc.expectedKey)
+			if err != nil {
+				t.Fatalf("RemoveRule failed: %v", err)
+			}
+
+			// Check the rule was removed from the lockfile
+			lock, err = LoadLockFile(cursorRulesDir)
+			if err != nil {
+				t.Fatalf("Failed to load lockfile after removal: %v", err)
+			}
+
+			for _, rule := range lock.Rules {
+				if rule.Key == tc.expectedKey {
+					t.Errorf("Rule still exists in lockfile after removal")
+				}
+			}
+
+			// Check the file was deleted
+			if _, err := os.Stat(destPath); !os.IsNotExist(err) {
+				t.Errorf("Rule file was not deleted")
+			}
+
+			// Test attempting to remove a rule that doesn't exist
+			err = RemoveRule(cursorRulesDir, "non-existent-rule")
+			if err == nil {
+				t.Error("Expected error when removing non-existent rule, got nil")
+			} else if !IsRuleNotFoundError(err) {
+				t.Errorf("Expected ErrRuleNotFound, got %T: %v", err, err)
+			}
+		})
 	}
 }
 

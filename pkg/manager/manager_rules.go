@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,13 +108,9 @@ func addRuleByReferenceImpl(cursorDir, ref string) error {
 	// Handle specific error cases
 	if err != nil {
 		// Check if this is a special error indicating a template was found
-		if strings.HasPrefix(err.Error(), "template_found:") {
-			parts := strings.Split(err.Error(), ":")
-			if len(parts) == 3 {
-				category := parts[1]
-				templateName := parts[2]
-				return AddRule(cursorDir, category, templateName)
-			}
+		var templateFoundErr *ErrTemplateFound
+		if errors.As(err, &templateFoundErr) {
+			return AddRule(cursorDir, templateFoundErr.Category, templateFoundErr.Name)
 		}
 
 		// Pass through other errors
@@ -168,7 +165,7 @@ func RemoveRule(cursorDir string, ruleKey string) error {
 	}
 
 	if ruleIndex == -1 {
-		return fmt.Errorf("rule not found: %s", ruleKey)
+		return &ErrRuleNotFound{RuleKey: ruleKey}
 	}
 
 	// Remove the rule files
@@ -183,7 +180,10 @@ func RemoveRule(cursorDir string, ruleKey string) error {
 		if fileExists(filePath) {
 			err = os.Remove(filePath)
 			if err != nil {
-				return fmt.Errorf("failed to remove rule file %s: %w", filePath, err)
+				return &ErrLocalFileAccess{
+					Path:  filePath,
+					Cause: err,
+				}
 			}
 		}
 	}
