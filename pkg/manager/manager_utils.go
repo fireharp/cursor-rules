@@ -381,8 +381,40 @@ func parseGlobPattern(ref string) (string, string, bool) {
 
 // Returns empty string if not configured.
 var getDefaultUsername = func() string {
-	// TODO: Implement by reading from ~/.cursor-rules/config.json
-	return ""
+	// Read from ~/.cursor-rules/config.json or from CURSOR_CONFIG_PATH environment variable
+	configPath := os.Getenv("CURSOR_CONFIG_PATH")
+	if configPath == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			Debugf("Failed to get user home dir: %v\n", err)
+			return ""
+		}
+		configPath = filepath.Join(homeDir, ".cursor-rules", "config.json")
+	}
+
+	// Check if config file exists
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		Debugf("Config file not found: %s\n", configPath)
+		return ""
+	}
+
+	// Read config file
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		Debugf("Failed to read config file: %v\n", err)
+		return ""
+	}
+
+	// Parse config
+	var config struct {
+		DefaultUsername string `json:"defaultUsername"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		Debugf("Failed to parse config file: %v\n", err)
+		return ""
+	}
+
+	return config.DefaultUsername
 }
 
 // compileGlob compiles a glob pattern to use for matching.
