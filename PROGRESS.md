@@ -235,3 +235,13 @@ MEMO: The refactoring improves maintainability and testability by using a Regist
 WHAT WAS DONE: Created a follow-up task with prioritized steps to further enhance the refactored codebase
 
 MEMO: The follow-up improvements focus on: (1) Updating tests to match the new architecture, (2) Replacing string-based error detection with custom error types, (3) Improving code organization and consistency, and (4) Adding more specific unit tests for handlers
+
+## TS: 2025-03-31 00:11:57 CEST
+
+---
+
+## PROBLEM: Need to release a new version of cursor-rules
+
+WHAT WAS DONE: Released version 0.1.6 with enhanced rule management, improved rule detection, and better glob pattern handling
+
+MEMO: Version 0.1.6 focuses on enhancing rule management capabilities and improving user experience

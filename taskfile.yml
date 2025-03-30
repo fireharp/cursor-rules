@@ -4,7 +4,7 @@ vars:
   BINARY: cursor-rules
   BUILD_DIR: ./bin
   MAIN_PKG: ./cmd/cursor-rules
-  VERSION: 0.1.5
+  VERSION: 0.1.6
   GITHUB_TOKEN:
     sh: |
       if [ -z "$GITHUB_TOKEN" ]; then
